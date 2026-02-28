@@ -1,7 +1,29 @@
 {% extends "base.html" %}
 {% block content %}
 <section>
-  <h2>History</h2>
-  <p>Audit run history will appear here in a future iteration.</p>
+  <h2>Audit History</h2>
+
+  {% if runs %}
+  <ul>
+    {% for run in runs %}
+    <li>
+      <p><strong>Run:</strong> <a href="/history/{{ run.id }}">#{{ run.id }}</a></p>
+      <p><strong>Created:</strong> {{ run.created_at }}</p>
+      <p><strong>Source:</strong> {{ run.source_type }}{% if run.source_name %} ({{ run.source_name }}){% endif %}</p>
+      <p><strong>Citations:</strong> {{ run.citation_count }}</p>
+      <p>
+        <strong>Verification summary:</strong>
+        VERIFIED={{ run.verified_count }},
+        NOT_FOUND={{ run.not_found_count }},
+        AMBIGUOUS={{ run.ambiguous_count }},
+        ERROR={{ run.error_count }},
+        UNVERIFIED_NO_TOKEN={{ run.unverified_no_token_count }}
+      </p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No audit runs have been saved yet.</p>
+  {% endif %}
 </section>
 {% endblock %}

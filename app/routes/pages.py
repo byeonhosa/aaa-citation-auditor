@@ -1,7 +1,13 @@
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from contextlib import contextmanager
+from typing import Any
+
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from aaa_db.models import AuditRun
+from aaa_db.repository import get_audit_run, list_audit_runs, save_audit_run
+from aaa_db.session import SessionLocal
 from app.services.audit import extract_citations, extract_source_text, resolve_id_citations
 from app.services.verification import summarize_verification_statuses, verify_citations
 from app.settings import TEMPLATES_DIR, settings
@@ -13,7 +19,16 @@ PASTED_TEXT_FORM = Form(default="")
 UPLOADED_FILE_FORM = File(default=None)
 
 
-def citation_to_context(citation) -> dict[str, str | None]:
+@contextmanager
+def db_session():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def citation_to_context(citation: Any) -> dict[str, str | None]:
     return {
         "raw_text": citation.raw_text,
         "citation_type": citation.citation_type,
@@ -21,6 +36,23 @@ def citation_to_context(citation) -> dict[str, str | None]:
         "resolved_from": citation.resolved_from,
         "verification_status": citation.verification_status,
         "verification_detail": citation.verification_detail,
+    }
+
+
+def run_to_context(run: AuditRun) -> dict[str, Any]:
+    return {
+        "id": run.id,
+        "created_at": run.created_at,
+        "source_type": run.source_type,
+        "source_name": run.source_name,
+        "citation_count": run.citation_count,
+        "verified_count": run.verified_count,
+        "not_found_count": run.not_found_count,
+        "ambiguous_count": run.ambiguous_count,
+        "error_count": run.error_count,
+        "unverified_no_token_count": run.unverified_no_token_count,
+        "input_text_excerpt": run.input_text_excerpt,
+        "warning_text": run.warning_text,
     }
 
 
@@ -85,8 +117,22 @@ async def run_audit(
         verification_base_url=settings.verification_base_url,
         verification_timeout_seconds=settings.verification_timeout_seconds,
     )
+
     warnings.extend(parsing_warnings)
     verification_summary = summarize_verification_statuses(citation_results)
+
+    source_name = (
+        uploaded_file.filename if uploaded_file and source_type in {"docx", "pdf"} else None
+    )
+    with db_session() as db:
+        save_audit_run(
+            db,
+            source_type=source_type or "text",
+            source_name=source_name,
+            input_text=text or "",
+            warnings=warnings,
+            citations=citation_results,
+        )
 
     return render_dashboard(
         request,
@@ -100,10 +146,37 @@ async def run_audit(
 
 @router.get("/history", response_class=HTMLResponse)
 def history(request: Request) -> HTMLResponse:
+    with db_session() as db:
+        runs = [run_to_context(run) for run in list_audit_runs(db)]
+
     return templates.TemplateResponse(
         request=request,
         name="history.html",
-        context={"title": "History"},
+        context={
+            "title": "History",
+            "runs": runs,
+        },
+    )
+
+
+@router.get("/history/{run_id}", response_class=HTMLResponse)
+def history_detail(request: Request, run_id: int) -> HTMLResponse:
+    with db_session() as db:
+        run = get_audit_run(db, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Audit run not found")
+
+        run_context = run_to_context(run)
+        citations = [citation_to_context(citation) for citation in run.citations]
+
+    return templates.TemplateResponse(
+        request=request,
+        name="history_detail.html",
+        context={
+            "title": f"Audit Run #{run_id}",
+            "run": run_context,
+            "citations": citations,
+        },
     )
 
 

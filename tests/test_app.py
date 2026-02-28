@@ -1,8 +1,11 @@
 from io import BytesIO
 
+import pytest
 from docx import Document
 from fastapi.testclient import TestClient
 
+from aaa_db.models import AuditRun, Base, CitationResultRecord
+from aaa_db.session import SessionLocal, engine
 from app.main import app
 from app.services.audit import CitationResult, extract_text_from_docx, resolve_id_citations
 from app.services.verification import (
@@ -27,6 +30,15 @@ class StubNotFoundVerifier:
 class StubErrorVerifier:
     def verify(self, citation: CitationResult) -> VerificationResponse:
         raise RuntimeError("verification crashed")
+
+
+@pytest.fixture(autouse=True)
+def clean_db() -> None:
+    Base.metadata.create_all(bind=engine)
+    with SessionLocal() as db:
+        db.query(CitationResultRecord).delete()
+        db.query(AuditRun).delete()
+        db.commit()
 
 
 def test_app_imports() -> None:
@@ -193,3 +205,59 @@ def test_dashboard_post_renders_verification_status(monkeypatch) -> None:
     assert response.status_code == 200
     assert "VERIFIED" in response.text
     assert "Mock verified" in response.text
+
+
+def test_successful_audit_persists_run_and_citations() -> None:
+    response = client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."},
+    )
+    assert response.status_code == 200
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+        citation_rows = db.query(CitationResultRecord).all()
+
+    assert run is not None
+    assert run.citation_count == len(citation_rows)
+    assert len(citation_rows) > 0
+
+
+def test_history_page_shows_saved_runs() -> None:
+    client.post("/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."})
+
+    response = client.get("/history")
+
+    assert response.status_code == 200
+    assert "Audit History" in response.text
+    assert "Brown" not in response.text
+
+
+def test_history_detail_existing_run_returns_200() -> None:
+    client.post("/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."})
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response = client.get(f"/history/{run.id}")
+
+    assert response.status_code == 200
+    assert f"Audit Run #{run.id}" in response.text
+
+
+def test_history_detail_missing_run_returns_404() -> None:
+    response = client.get("/history/999999")
+
+    assert response.status_code == 404
+
+
+def test_only_excerpt_is_stored_for_pasted_text() -> None:
+    long_text = "A" * 500
+    client.post("/audit", data={"pasted_text": long_text})
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    assert run is not None
+    assert run.input_text_excerpt == long_text[:200]
+    assert run.input_text_excerpt != long_text
