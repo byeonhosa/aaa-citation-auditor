@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aaa-citation-auditor"
+version = "0.1.0"
+description = "AAA (AI Agent Auditor) local-first scaffold"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115.0,<1.0.0",
+  "jinja2>=3.1.0,<4.0.0",
+  "pydantic-settings>=2.5.0,<3.0.0",
+  "sqlalchemy>=2.0.0,<3.0.0",
+  "uvicorn[standard]>=0.30.0,<1.0.0",
+  "eyecite>=2.6.0,<3.0.0",
+  "python-docx>=1.1.0,<2.0.0",
+  "pymupdf>=1.24.0,<2.0.0",
+  "python-multipart>=0.0.9,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27.0,<1.0.0",
+  "pytest>=8.0.0,<9.0.0",
+  "ruff>=0.6.0,<1.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "aaa_db*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
