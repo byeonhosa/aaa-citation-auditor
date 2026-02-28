@@ -3,11 +3,12 @@ from io import BytesIO
 import pytest
 from docx import Document
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from aaa_db.models import AuditRun, Base, CitationResultRecord, TelemetryEvent
 from aaa_db.session import SessionLocal, engine
 from aaa_db.telemetry_repository import get_or_create_install_id
-from app.main import app
+from app.main import app, create_app
 from app.services.audit import CitationResult, extract_text_from_docx, resolve_id_citations
 from app.services.verification import (
     VerificationResponse,
@@ -303,3 +304,49 @@ def test_audit_completed_telemetry_stores_safe_aggregate_fields_only() -> None:
     ]
     for field in forbidden_fields:
         assert not hasattr(event, field)
+
+
+def test_telemetry_table_exists_in_sqlite() -> None:
+    with SessionLocal() as db:
+        rows = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='telemetry_events'")
+        )
+        rows = rows.fetchall()
+
+    assert rows
+
+
+def test_app_started_telemetry_written_on_app_create() -> None:
+    create_app()
+
+    with SessionLocal() as db:
+        event = (
+            db.query(TelemetryEvent)
+            .filter(TelemetryEvent.event_type == "app_started")
+            .order_by(TelemetryEvent.id.desc())
+            .first()
+        )
+
+    assert event is not None
+
+
+def test_history_view_events_are_recorded() -> None:
+    client.post("/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."})
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response_history = client.get("/history")
+    response_detail = client.get(f"/history/{run.id}")
+    response_missing = client.get("/history/999999")
+
+    assert response_history.status_code == 200
+    assert response_detail.status_code == 200
+    assert response_missing.status_code == 404
+
+    with SessionLocal() as db:
+        event_types = [row[0] for row in db.query(TelemetryEvent.event_type).all()]
+
+    assert "history_viewed" in event_types
+    assert "history_detail_viewed" in event_types
+    assert "missing_run_404" in event_types

@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from aaa_db.models import Base
+from aaa_db.models import Base, TelemetryEvent
 from aaa_db.session import SessionLocal, engine
 from aaa_db.telemetry_repository import get_or_create_install_id, record_telemetry_event
 from app.routes.api import router as api_router
@@ -16,6 +16,8 @@ def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, debug=settings.debug)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+    # Ensure all ORM models are imported/registered before table creation.
+    _ = TelemetryEvent
     Base.metadata.create_all(bind=engine)
 
     app.include_router(pages_router)
