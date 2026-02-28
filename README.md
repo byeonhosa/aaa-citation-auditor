@@ -1,8 +1,20 @@
 # AAA (AI Agent Auditor)
 
-AAA is a local-first prototype scaffold for a citation-verification app aimed at small law firms, solo practitioners, nonprofits, and local government legal offices.
+AAA is a local-first prototype for citation auditing aimed at small law firms, solo practitioners, nonprofits, and local government legal offices.
 
-This initial version includes only the base app structure, routes, settings, templates, and tests.
+## Current prototype scope (Phase 2)
+
+- Server-rendered dashboard with:
+  - pasted text input
+  - `.docx` / `.pdf` upload input
+  - audit submit action
+- Citation extraction pipeline using:
+  - `python-docx` for `.docx` text extraction
+  - `PyMuPDF` (`fitz`) for `.pdf` text extraction
+  - `eyecite` for citation detection
+- Minimal transparent `Id.` resolution:
+  - `Id.` references the last full citation when available
+  - unresolved `Id.` is shown as unresolved (no guessing)
 
 ## Tech stack
 
@@ -10,7 +22,7 @@ This initial version includes only the base app structure, routes, settings, tem
 - FastAPI
 - Jinja2 templates (server-rendered)
 - HTMX
-- SQLAlchemy + SQLite
+- SQLAlchemy + SQLite (scaffold only for now)
 - pydantic-settings
 - pytest
 - ruff
@@ -22,6 +34,7 @@ app/
   main.py
   settings.py
   routes/
+  services/
   templates/
   static/
 aaa_db/
@@ -30,8 +43,6 @@ aaa_db/
 tests/
 scripts/
 ```
-
-The layout is intentionally simple and local-first so it can run on a laptop, Raspberry Pi, or small VPS.
 
 ## Local setup
 
@@ -73,8 +84,9 @@ Open <http://127.0.0.1:8000>.
 ## Routes
 
 - `GET /` → Audit Dashboard page
-- `GET /history` → History page
-- `GET /settings` → Settings page
+- `POST /audit` → Run local audit against pasted text or uploaded file
+- `GET /history` → History page placeholder
+- `GET /settings` → Settings page placeholder
 - `GET /api/health` → `{"status": "ok"}`
 
 ## Tests
@@ -90,13 +102,9 @@ ruff check .
 ruff format .
 ```
 
-## Next phase hooks
+## Not included yet
 
-The scaffold is prepared for adding:
-
-- paste text input
-- docx/pdf upload
-- citation extraction
-- Id. resolution
-- CourtListener verification
-- audit history persistence
+- CourtListener integration
+- database-backed audit history
+- authentication/authorization
+- Docker/background workers/Alembic
