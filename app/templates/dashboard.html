@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <h2>Audit Dashboard</h2>
+  <p>Paste text or upload a legal document to extract and verify citations.</p>
+
+  <form action="/audit" method="post" enctype="multipart/form-data">
+    <label for="pasted_text">Pasted Text</label>
+    <textarea id="pasted_text" name="pasted_text" rows="10" placeholder="Paste legal text here...">{{ pasted_text or "" }}</textarea>
+
+    <label for="uploaded_file">Upload .docx or .pdf</label>
+    <input id="uploaded_file" name="uploaded_file" type="file" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+
+    <button type="submit">Audit</button>
+  </form>
+</section>
+
+{% if validation_message %}
+<section>
+  <p class="validation-message">{{ validation_message }}</p>
+</section>
+{% endif %}
+
+{% if warning_messages %}
+<section>
+  <h3>Warnings</h3>
+  <ul>
+    {% for warning in warning_messages %}
+    <li>{{ warning }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if source_type %}
+<section>
+  <h3>Results</h3>
+  <p><strong>Source type:</strong> {{ source_type }}</p>
+  <p><strong>Citations found:</strong> {{ citation_count }}</p>
+
+  {% if verification_summary %}
+  <p>
+    <strong>Verification summary:</strong>
+    {% for status, count in verification_summary.items() %}
+    <span class="verification-badge">{{ status }}: {{ count }}</span>{% if not loop.last %}, {% endif %}
+    {% endfor %}
+  </p>
+  {% endif %}
+
+  {% if citations %}
+  <ul>
+    {% for citation in citations %}
+    <li>
+      <p><strong>Raw text:</strong> {{ citation.raw_text }}</p>
+      <p><strong>Type:</strong> {{ citation.citation_type }}</p>
+      <p><strong>Normalized:</strong> {{ citation.normalized_text or "(not available)" }}</p>
+      <p><strong>Resolved from:</strong> {{ citation.resolved_from or "(unresolved)" }}</p>
+      <p><strong>Verification:</strong> <span class="verification-badge">{{ citation.verification_status or "UNKNOWN" }}</span></p>
+      <p><strong>Verification detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No citations found.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
