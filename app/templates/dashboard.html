@@ -22,7 +22,7 @@
 {% endif %}
 
 {% if warning_messages %}
-<section>
+<section class="warning-box">
   <h3>Warnings</h3>
   <ul>
     {% for warning in warning_messages %}
@@ -39,12 +39,14 @@
   <p><strong>Citations found:</strong> {{ citation_count }}</p>
 
   {% if verification_summary %}
-  <p>
-    <strong>Verification summary:</strong>
+  <div class="summary-grid">
     {% for status, count in verification_summary.items() %}
-    <span class="verification-badge">{{ status }}: {{ count }}</span>{% if not loop.last %}, {% endif %}
+    <div class="summary-card">
+      <div class="summary-status">{{ status }}</div>
+      <div class="summary-count">{{ count }}</div>
+    </div>
     {% endfor %}
-  </p>
+  </div>
   {% endif %}
 
   {% if citations %}
@@ -61,7 +63,7 @@
     {% endfor %}
   </ul>
   {% else %}
-  <p>No citations found.</p>
+  <p class="empty-state">No citations were found in this input. Try pasting more text or uploading another file.</p>
   {% endif %}
 </section>
 {% endif %}
