@@ -17,6 +17,8 @@ class CitationResult:
     citation_type: str
     normalized_text: str | None = None
     resolved_from: str | None = None
+    verification_status: str | None = None
+    verification_detail: str | None = None
 
 
 def extract_text_from_docx(file_bytes: bytes) -> str:

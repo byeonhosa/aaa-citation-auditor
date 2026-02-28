@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     debug: bool = False
     database_url: str = "sqlite:///./aaa.db"
 
+    courtlistener_token: str | None = None
+    verification_base_url: str = "https://www.courtlistener.com/api/rest/v4/citation-lookup/"
+    verification_timeout_seconds: int = 8
+
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",

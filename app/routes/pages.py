@@ -3,13 +3,25 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.services.audit import extract_citations, extract_source_text, resolve_id_citations
-from app.settings import TEMPLATES_DIR
+from app.services.verification import summarize_verification_statuses, verify_citations
+from app.settings import TEMPLATES_DIR, settings
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 PASTED_TEXT_FORM = Form(default="")
 UPLOADED_FILE_FORM = File(default=None)
+
+
+def citation_to_context(citation) -> dict[str, str | None]:
+    return {
+        "raw_text": citation.raw_text,
+        "citation_type": citation.citation_type,
+        "normalized_text": citation.normalized_text,
+        "resolved_from": citation.resolved_from,
+        "verification_status": citation.verification_status,
+        "verification_detail": citation.verification_detail,
+    }
 
 
 def render_dashboard(
@@ -20,9 +32,11 @@ def render_dashboard(
     source_type: str | None = None,
     warnings: list[str] | None = None,
     validation_message: str | None = None,
+    verification_summary: dict[str, int] | None = None,
 ) -> HTMLResponse:
     citations = citations or []
     warnings = warnings or []
+    verification_summary = verification_summary or {}
 
     return templates.TemplateResponse(
         request=request,
@@ -35,6 +49,7 @@ def render_dashboard(
             "warning_messages": warnings,
             "validation_message": validation_message,
             "citation_count": len(citations),
+            "verification_summary": verification_summary,
         },
     )
 
@@ -63,23 +78,23 @@ async def run_audit(
         )
 
     citation_results, parsing_warnings = extract_citations(text or "")
-    resolved_citations = resolve_id_citations(citation_results)
+    citation_results = resolve_id_citations(citation_results)
+    citation_results = verify_citations(
+        citation_results,
+        courtlistener_token=settings.courtlistener_token,
+        verification_base_url=settings.verification_base_url,
+        verification_timeout_seconds=settings.verification_timeout_seconds,
+    )
     warnings.extend(parsing_warnings)
+    verification_summary = summarize_verification_statuses(citation_results)
 
     return render_dashboard(
         request,
         pasted_text=pasted_text,
-        citations=[
-            {
-                "raw_text": citation.raw_text,
-                "citation_type": citation.citation_type,
-                "normalized_text": citation.normalized_text,
-                "resolved_from": citation.resolved_from,
-            }
-            for citation in resolved_citations
-        ],
+        citations=[citation_to_context(citation) for citation in citation_results],
         source_type=source_type,
         warnings=warnings,
+        verification_summary=verification_summary,
     )
 
 

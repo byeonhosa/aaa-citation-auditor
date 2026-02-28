@@ -33,3 +33,11 @@ button {
   color: #8a1f11;
   font-weight: bold;
 }
+
+.verification-badge {
+  background-color: #eef;
+  border-radius: 4px;
+  display: inline-block;
+  font-size: 0.9rem;
+  padding: 0.1rem 0.4rem;
+}

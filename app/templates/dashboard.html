@@ -2,7 +2,7 @@
 {% block content %}
 <section>
   <h2>Audit Dashboard</h2>
-  <p>Paste text or upload a legal document to extract citations.</p>
+  <p>Paste text or upload a legal document to extract and verify citations.</p>
 
   <form action="/audit" method="post" enctype="multipart/form-data">
     <label for="pasted_text">Pasted Text</label>
@@ -38,6 +38,15 @@
   <p><strong>Source type:</strong> {{ source_type }}</p>
   <p><strong>Citations found:</strong> {{ citation_count }}</p>
 
+  {% if verification_summary %}
+  <p>
+    <strong>Verification summary:</strong>
+    {% for status, count in verification_summary.items() %}
+    <span class="verification-badge">{{ status }}: {{ count }}</span>{% if not loop.last %}, {% endif %}
+    {% endfor %}
+  </p>
+  {% endif %}
+
   {% if citations %}
   <ul>
     {% for citation in citations %}
@@ -46,6 +55,8 @@
       <p><strong>Type:</strong> {{ citation.citation_type }}</p>
       <p><strong>Normalized:</strong> {{ citation.normalized_text or "(not available)" }}</p>
       <p><strong>Resolved from:</strong> {{ citation.resolved_from or "(unresolved)" }}</p>
+      <p><strong>Verification:</strong> <span class="verification-badge">{{ citation.verification_status or "UNKNOWN" }}</span></p>
+      <p><strong>Verification detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
     </li>
     {% endfor %}
   </ul>

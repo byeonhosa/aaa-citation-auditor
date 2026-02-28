@@ -12,6 +12,9 @@ AAA is a local-first prototype for citation auditing aimed at small law firms, s
   - `python-docx` for `.docx` text extraction
   - `PyMuPDF` (`fitz`) for `.pdf` text extraction
   - `eyecite` for citation detection
+- Citation verification layer:
+  - with no token: citations are marked `UNVERIFIED_NO_TOKEN`
+  - with token: verifier returns `VERIFIED`, `NOT_FOUND`, `AMBIGUOUS`, or `ERROR`
 - Minimal transparent `Id.` resolution:
   - `Id.` references the last full citation when available
   - unresolved `Id.` is shown as unresolved (no guessing)
@@ -81,10 +84,21 @@ Or:
 
 Open <http://127.0.0.1:8000>.
 
+
+## Optional verification settings
+
+Set these in `.env` to enable live verification attempts:
+
+- `COURTLISTENER_TOKEN`
+- `VERIFICATION_BASE_URL` (defaults to CourtListener citation lookup endpoint)
+- `VERIFICATION_TIMEOUT_SECONDS`
+
+If no token is provided, the app still works and marks citations as `UNVERIFIED_NO_TOKEN`.
+
 ## Routes
 
 - `GET /` → Audit Dashboard page
-- `POST /audit` → Run local audit against pasted text or uploaded file
+- `POST /audit` → Run local audit against pasted text or uploaded file (extract + verify)
 - `GET /history` → History page placeholder
 - `GET /settings` → Settings page placeholder
 - `GET /api/health` → `{"status": "ok"}`
