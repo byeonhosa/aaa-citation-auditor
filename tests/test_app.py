@@ -1,4 +1,5 @@
 from io import BytesIO
+from types import SimpleNamespace
 
 import pytest
 from docx import Document
@@ -9,6 +10,7 @@ from aaa_db.models import AuditRun, Base, CitationResultRecord, TelemetryEvent
 from aaa_db.session import SessionLocal, engine
 from aaa_db.telemetry_repository import get_or_create_install_id
 from app.main import app, create_app
+from app.routes.pages import citation_to_context
 from app.services.audit import (
     CitationResult,
     extract_citations,
@@ -332,6 +334,50 @@ def test_successful_audit_persists_run_and_citations() -> None:
     assert run is not None
     assert run.citation_count == len(citation_rows)
     assert len(citation_rows) > 0
+
+
+def test_citation_to_context_handles_missing_snippet_attr() -> None:
+    legacy_like = SimpleNamespace(
+        raw_text="Legacy raw",
+        citation_type="LegacyType",
+        normalized_text=None,
+        resolved_from=None,
+        verification_status="UNVERIFIED_NO_TOKEN",
+        verification_detail="No token",
+    )
+
+    context = citation_to_context(legacy_like)
+
+    assert context["snippet"] is None
+
+
+def test_persisted_citation_row_includes_snippet_data() -> None:
+    snippet_text = (
+        "Leading text. Brown v. Board of Educ., 347 U.S. 483 (1954). trailing text."
+    )
+    client.post("/audit", data={"pasted_text": snippet_text})
+
+    with SessionLocal() as db:
+        row = db.query(CitationResultRecord).first()
+
+    assert row is not None
+    assert row.snippet is not None
+    assert len(row.snippet) > 0
+
+
+def test_history_detail_renders_persisted_snippet() -> None:
+    snippet_text = (
+        "Leading text. Brown v. Board of Educ., 347 U.S. 483 (1954). trailing text."
+    )
+    client.post("/audit", data={"pasted_text": snippet_text})
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response = client.get(f"/history/{run.id}")
+
+    assert response.status_code == 200
+    assert "Saved citations" in response.text
 
 
 def test_history_page_shows_saved_runs() -> None:

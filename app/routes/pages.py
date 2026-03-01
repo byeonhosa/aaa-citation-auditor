@@ -52,7 +52,7 @@ def citation_to_context(citation: Any) -> dict[str, str | None]:
         "resolved_from": citation.resolved_from,
         "verification_status": citation.verification_status,
         "verification_detail": citation.verification_detail,
-        "snippet": citation.snippet,
+        "snippet": getattr(citation, "snippet", None),
     }
 
 

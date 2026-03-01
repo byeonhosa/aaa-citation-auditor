@@ -70,6 +70,7 @@ def save_audit_run(
                 resolved_from=citation.resolved_from,
                 verification_status=citation.verification_status,
                 verification_detail=citation.verification_detail,
+                snippet=citation.snippet,
             )
         )
 
