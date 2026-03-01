@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     verification_base_url: str = "https://www.courtlistener.com/api/rest/v4/citation-lookup/"
     verification_timeout_seconds: int = 8
 
+    ai_memo_enabled: bool = False
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4.1-mini"
+    ai_timeout_seconds: int = 10
+
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",

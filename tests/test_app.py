@@ -11,6 +11,7 @@ from aaa_db.session import SessionLocal, engine
 from aaa_db.telemetry_repository import get_or_create_install_id
 from app.main import app, create_app
 from app.routes.pages import citation_to_context
+from app.services.ai_risk_memo import RiskMemo
 from app.services.audit import (
     CitationResult,
     extract_citations,
@@ -573,3 +574,109 @@ def test_history_view_events_are_recorded() -> None:
     assert "history_viewed" in event_types
     assert "history_detail_viewed" in event_types
     assert "missing_run_404" in event_types
+
+
+def test_dashboard_ai_memo_unavailable_without_key(monkeypatch) -> None:
+    monkeypatch.setattr("app.routes.pages.settings.ai_memo_enabled", True)
+    monkeypatch.setattr("app.routes.pages.settings.openai_api_key", None)
+
+    response = client.post(
+        "/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."}
+    )
+
+    assert response.status_code == 200
+    assert "AI Risk Memo (Advisory)" in response.text
+    assert "OpenAI API key is not configured." in response.text
+
+
+def test_dashboard_renders_mocked_structured_ai_memo(monkeypatch) -> None:
+    def fake_generate(*args, **kwargs):  # noqa: ANN002, ANN003
+        return RiskMemo(
+            risk_level="Moderate",
+            summary="Potential citation risks detected.",
+            top_issues=["One NOT_FOUND citation"],
+            recommended_actions=["Check reporter and pinpoint citations"],
+            advisory_note=(
+                "AI analysis is advisory only. Deterministic verification statuses remain the "
+                "source of truth."
+            ),
+        )
+
+    monkeypatch.setattr("app.routes.pages.generate_risk_memo", fake_generate)
+
+    response = client.post(
+        "/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."}
+    )
+
+    assert response.status_code == 200
+    assert "Potential citation risks detected." in response.text
+    assert "One NOT_FOUND citation" in response.text
+
+
+def test_history_detail_renders_mocked_structured_ai_memo(monkeypatch) -> None:
+    def fake_generate(*args, **kwargs):  # noqa: ANN002, ANN003
+        return RiskMemo(
+            risk_level="High",
+            summary="Several unresolved citations need immediate review.",
+            top_issues=["Derived citation chain may be fragile"],
+            recommended_actions=["Manually confirm source authority"],
+            advisory_note=(
+                "AI analysis is advisory only. Deterministic verification statuses remain the "
+                "source of truth."
+            ),
+        )
+
+    monkeypatch.setattr("app.routes.pages.generate_risk_memo", fake_generate)
+
+    client.post("/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."})
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response = client.get(f"/history/{run.id}")
+
+    assert response.status_code == 200
+    assert "AI Risk Memo (Advisory)" in response.text
+    assert "Several unresolved citations need immediate review." in response.text
+
+
+def test_ai_memo_failure_does_not_break_page(monkeypatch) -> None:
+    def broken_generate(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("app.routes.pages.generate_risk_memo", broken_generate)
+
+    response = client.post(
+        "/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."}
+    )
+
+    assert response.status_code == 200
+    assert "Results summary" in response.text
+
+
+def test_ai_memo_addition_does_not_change_deterministic_verification_statuses(monkeypatch) -> None:
+    def fake_verify(citations, **kwargs):  # noqa: ANN001, ANN003
+        citations[0].verification_status = "VERIFIED"
+        citations[0].verification_detail = "Matched"
+        return citations
+
+    def fake_generate(*args, **kwargs):  # noqa: ANN002, ANN003
+        return RiskMemo(
+            risk_level="Low",
+            summary="Looks good.",
+            top_issues=[],
+            recommended_actions=[],
+            advisory_note=(
+                "AI analysis is advisory only. Deterministic verification statuses remain the "
+                "source of truth."
+            ),
+        )
+
+    monkeypatch.setattr("app.routes.pages.verify_citations", fake_verify)
+    monkeypatch.setattr("app.routes.pages.generate_risk_memo", fake_generate)
+
+    response = client.post(
+        "/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."}
+    )
+
+    assert response.status_code == 200
+    assert "VERIFIED" in response.text

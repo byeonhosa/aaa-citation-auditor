@@ -10,6 +10,7 @@ from aaa_db.models import AuditRun
 from aaa_db.repository import get_audit_run, list_audit_runs, save_audit_run
 from aaa_db.session import SessionLocal
 from aaa_db.telemetry_repository import get_or_create_install_id, record_telemetry_event
+from app.services.ai_risk_memo import generate_risk_memo, unavailable_memo
 from app.services.audit import collect_sources, extract_citations, resolve_id_citations
 from app.services.exporters import (
     export_csv_for_run,
@@ -76,6 +77,62 @@ def run_to_context(run: AuditRun) -> dict[str, Any]:
         "input_text_excerpt": run.input_text_excerpt,
         "warning_text": run.warning_text,
     }
+
+
+def build_ai_memo_input(
+    *,
+    source_type: str,
+    source_name: str | None,
+    verification_summary: dict[str, int],
+    citations: list[dict[str, str | None]],
+    warnings: list[str],
+) -> dict[str, Any]:
+    return {
+        "source_type": source_type,
+        "source_name": source_name,
+        "verification_summary": verification_summary,
+        "citation_count": len(citations),
+        "citations": [
+            {
+                "raw_text": citation.get("raw_text"),
+                "citation_type": citation.get("citation_type"),
+                "resolved_from": citation.get("resolved_from"),
+                "verification_status": citation.get("verification_status"),
+                "verification_detail": citation.get("verification_detail"),
+                "snippet": citation.get("snippet"),
+            }
+            for citation in citations
+        ],
+        "warnings": warnings,
+    }
+
+
+def generate_ai_memo_for_group(
+    *,
+    source_type: str,
+    source_name: str | None,
+    verification_summary: dict[str, int],
+    citations: list[dict[str, str | None]],
+    warnings: list[str],
+):
+    run_data = build_ai_memo_input(
+        source_type=source_type,
+        source_name=source_name,
+        verification_summary=verification_summary,
+        citations=citations,
+        warnings=warnings,
+    )
+
+    try:
+        return generate_risk_memo(
+            run_data,
+            enabled=settings.ai_memo_enabled,
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+            timeout_seconds=settings.ai_timeout_seconds,
+        )
+    except Exception:
+        return unavailable_memo("AI memo generation failed.")
 
 
 def render_dashboard(
@@ -183,6 +240,14 @@ async def run_audit(
             }
         )
 
+        result_groups[-1]["ai_memo"] = generate_ai_memo_for_group(
+            source_type=result_groups[-1]["source_type"],
+            source_name=result_groups[-1]["source_name"],
+            verification_summary=result_groups[-1]["verification_summary"],
+            citations=result_groups[-1]["citations"],
+            warnings=group_warnings,
+        )
+
     return render_dashboard(
         request,
         pasted_text=pasted_text,
@@ -218,6 +283,15 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
 
         run_context = run_to_context(run)
         citations = [citation_to_context(citation) for citation in run.citations]
+        verification_summary = summarize_verification_statuses(run.citations)
+
+    ai_memo = generate_ai_memo_for_group(
+        source_type=run_context["source_type"],
+        source_name=run_context["source_name"],
+        verification_summary=verification_summary,
+        citations=citations,
+        warnings=[run_context["warning_text"]] if run_context["warning_text"] else [],
+    )
 
     _record_event_safely(event_type="history_detail_viewed")
 
@@ -228,6 +302,7 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
             "title": f"Audit Run #{run_id}",
             "run": run_context,
             "citations": citations,
+            "ai_memo": ai_memo,
         },
     )
 

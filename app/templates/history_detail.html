@@ -28,6 +28,36 @@
   <p><a href="/history">Back to History</a> · <a href="/">Back to Dashboard</a></p>
 </section>
 
+
+<section class="ai-memo-box">
+  <h3>AI Risk Memo (Advisory)</h3>
+  {% if ai_memo and ai_memo.available %}
+  <p><strong>Risk level:</strong> {{ ai_memo.risk_level }}</p>
+  <p><strong>Summary:</strong> {{ ai_memo.summary }}</p>
+
+  {% if ai_memo.top_issues %}
+  <p><strong>Top issues:</strong></p>
+  <ul>
+    {% for issue in ai_memo.top_issues %}
+    <li>{{ issue }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if ai_memo.recommended_actions %}
+  <p><strong>Recommended actions:</strong></p>
+  <ul>
+    {% for action in ai_memo.recommended_actions %}
+    <li>{{ action }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% else %}
+  <p class="empty-state">{{ ai_memo.unavailable_reason if ai_memo else "AI memo unavailable." }}</p>
+  {% endif %}
+  <p class="advisory-note"><em>{{ (ai_memo.advisory_note if ai_memo else "AI analysis is advisory only. Deterministic verification statuses remain the source of truth.") }}</em></p>
+</section>
+
 <section>
   <h3>Saved citations</h3>
   {% if citations %}
