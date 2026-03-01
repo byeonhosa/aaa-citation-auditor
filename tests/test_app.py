@@ -320,6 +320,79 @@ def test_results_are_grouped_by_file_source() -> None:
     assert "two.docx" in response.text
 
 
+def test_filtering_ui_presence_is_rendered() -> None:
+    response = client.post(
+        "/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."}
+    )
+
+    assert response.status_code == 200
+    assert 'id="status-filter"' in response.text
+    assert 'id="source-filter"' in response.text
+
+
+def test_history_detail_includes_export_actions() -> None:
+    client.post("/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."})
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response = client.get(f"/history/{run.id}")
+
+    assert response.status_code == 200
+    assert f"/history/{run.id}/export?format=markdown" in response.text
+    assert f"/history/{run.id}/export?format=csv" in response.text
+
+
+def test_markdown_export_returns_expected_content() -> None:
+    client.post("/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."})
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response = client.get(f"/history/{run.id}/export?format=markdown")
+
+    assert response.status_code == 200
+    assert "text/markdown" in response.headers["content-type"]
+    assert f"Audit Run #{run.id}" in response.text
+    assert "Raw text" in response.text
+
+
+def test_csv_export_returns_expected_headers_content() -> None:
+    client.post("/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."})
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response = client.get(f"/history/{run.id}/export?format=csv")
+
+    assert response.status_code == 200
+    assert "text/csv" in response.headers["content-type"]
+    assert "source,raw_text,citation_type" in response.text
+
+
+def test_printable_html_export_route_returns_html() -> None:
+    client.post("/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."})
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response = client.get(f"/history/{run.id}/export?format=html")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "AAA Export" in response.text
+
+
+def test_dashboard_result_group_includes_export_link_for_current_results() -> None:
+    response = client.post(
+        "/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."}
+    )
+
+    assert response.status_code == 200
+    assert "/history/" in response.text
+    assert "export?format=markdown" in response.text
+
+
 def test_successful_audit_persists_run_and_citations() -> None:
     response = client.post(
         "/audit",
@@ -352,9 +425,7 @@ def test_citation_to_context_handles_missing_snippet_attr() -> None:
 
 
 def test_persisted_citation_row_includes_snippet_data() -> None:
-    snippet_text = (
-        "Leading text. Brown v. Board of Educ., 347 U.S. 483 (1954). trailing text."
-    )
+    snippet_text = "Leading text. Brown v. Board of Educ., 347 U.S. 483 (1954). trailing text."
     client.post("/audit", data={"pasted_text": snippet_text})
 
     with SessionLocal() as db:
@@ -366,9 +437,7 @@ def test_persisted_citation_row_includes_snippet_data() -> None:
 
 
 def test_history_detail_renders_persisted_snippet() -> None:
-    snippet_text = (
-        "Leading text. Brown v. Board of Educ., 347 U.S. 483 (1954). trailing text."
-    )
+    snippet_text = "Leading text. Brown v. Board of Educ., 347 U.S. 483 (1954). trailing text."
     client.post("/audit", data={"pasted_text": snippet_text})
 
     with SessionLocal() as db:
