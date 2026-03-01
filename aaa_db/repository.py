@@ -41,6 +41,7 @@ def save_audit_run(
         "AMBIGUOUS": 0,
         "ERROR": 0,
         "UNVERIFIED_NO_TOKEN": 0,
+        "DERIVED": 0,
     }
 
     for citation in citations:
@@ -53,7 +54,7 @@ def save_audit_run(
         citation_count=len(citations),
         verified_count=status_counts["VERIFIED"],
         not_found_count=status_counts["NOT_FOUND"],
-        ambiguous_count=status_counts["AMBIGUOUS"],
+        ambiguous_count=status_counts["AMBIGUOUS"] + status_counts["DERIVED"],
         error_count=status_counts["ERROR"],
         unverified_no_token_count=status_counts["UNVERIFIED_NO_TOKEN"],
         input_text_excerpt=_build_excerpt(source_type, input_text),

@@ -10,7 +10,7 @@ from aaa_db.models import AuditRun
 from aaa_db.repository import get_audit_run, list_audit_runs, save_audit_run
 from aaa_db.session import SessionLocal
 from aaa_db.telemetry_repository import get_or_create_install_id, record_telemetry_event
-from app.services.audit import extract_citations, extract_source_text, resolve_id_citations
+from app.services.audit import collect_sources, extract_citations, resolve_id_citations
 from app.services.verification import summarize_verification_statuses, verify_citations
 from app.settings import TEMPLATES_DIR, settings
 
@@ -18,7 +18,7 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 PASTED_TEXT_FORM = Form(default="")
-UPLOADED_FILE_FORM = File(default=None)
+UPLOADED_FILES_FORM = File(default=None)
 
 
 @contextmanager
@@ -52,6 +52,7 @@ def citation_to_context(citation: Any) -> dict[str, str | None]:
         "resolved_from": citation.resolved_from,
         "verification_status": citation.verification_status,
         "verification_detail": citation.verification_detail,
+        "snippet": citation.snippet,
     }
 
 
@@ -76,15 +77,13 @@ def render_dashboard(
     request: Request,
     *,
     pasted_text: str = "",
-    citations: list[dict[str, str | None]] | None = None,
-    source_type: str | None = None,
+    result_groups: list[dict[str, Any]] | None = None,
     warnings: list[str] | None = None,
     validation_message: str | None = None,
-    verification_summary: dict[str, int] | None = None,
 ) -> HTMLResponse:
-    citations = citations or []
+    groups = result_groups or []
     warnings = warnings or []
-    verification_summary = verification_summary or {}
+    total_citations = sum(group["citation_count"] for group in groups)
 
     return templates.TemplateResponse(
         request=request,
@@ -92,12 +91,10 @@ def render_dashboard(
         context={
             "title": "Audit Dashboard",
             "pasted_text": pasted_text,
-            "citations": citations,
-            "source_type": source_type,
+            "result_groups": groups,
             "warning_messages": warnings,
             "validation_message": validation_message,
-            "citation_count": len(citations),
-            "verification_summary": verification_summary,
+            "total_citations": total_citations,
         },
     )
 
@@ -111,67 +108,80 @@ def dashboard(request: Request) -> HTMLResponse:
 async def run_audit(
     request: Request,
     pasted_text: str = PASTED_TEXT_FORM,
-    uploaded_file: UploadFile | None = UPLOADED_FILE_FORM,
+    uploaded_files: list[UploadFile] | None = UPLOADED_FILES_FORM,
 ) -> HTMLResponse:
-    started = perf_counter()
-    text, source_type, warnings, validation_message = await extract_source_text(
-        pasted_text, uploaded_file
+    shared_warnings: list[str] = []
+    result_groups: list[dict[str, Any]] = []
+
+    sources, collection_warnings, validation_message = await collect_sources(
+        pasted_text, uploaded_files
     )
+    shared_warnings.extend(collection_warnings)
 
     if validation_message:
         return render_dashboard(
             request,
             pasted_text=pasted_text,
-            warnings=warnings,
+            warnings=shared_warnings,
             validation_message=validation_message,
         )
 
-    citation_results, parsing_warnings = extract_citations(text or "")
-    citation_results = resolve_id_citations(citation_results)
-    citation_results = verify_citations(
-        citation_results,
-        courtlistener_token=settings.courtlistener_token,
-        verification_base_url=settings.verification_base_url,
-        verification_timeout_seconds=settings.verification_timeout_seconds,
-    )
+    for source in sources:
+        started = perf_counter()
 
-    warnings.extend(parsing_warnings)
-    verification_summary = summarize_verification_statuses(citation_results)
-
-    source_name = (
-        uploaded_file.filename if uploaded_file and source_type in {"docx", "pdf"} else None
-    )
-    with db_session() as db:
-        save_audit_run(
-            db,
-            source_type=source_type or "text",
-            source_name=source_name,
-            input_text=text or "",
-            warnings=warnings,
-            citations=citation_results,
+        citation_results, parsing_warnings = extract_citations(source.text)
+        citation_results = resolve_id_citations(citation_results)
+        citation_results = verify_citations(
+            citation_results,
+            courtlistener_token=settings.courtlistener_token,
+            verification_base_url=settings.verification_base_url,
+            verification_timeout_seconds=settings.verification_timeout_seconds,
         )
 
-    latency_ms = int((perf_counter() - started) * 1000)
-    _record_event_safely(
-        event_type="audit_completed",
-        source_type=source_type,
-        citation_count=len(citation_results),
-        verified_count=verification_summary.get("VERIFIED", 0),
-        not_found_count=verification_summary.get("NOT_FOUND", 0),
-        ambiguous_count=verification_summary.get("AMBIGUOUS", 0),
-        error_count=verification_summary.get("ERROR", 0),
-        unverified_no_token_count=verification_summary.get("UNVERIFIED_NO_TOKEN", 0),
-        had_warning=bool(warnings),
-        latency_ms=latency_ms,
-    )
+        group_warnings = [*source.warnings, *parsing_warnings]
+        verification_summary = summarize_verification_statuses(citation_results)
+
+        with db_session() as db:
+            save_audit_run(
+                db,
+                source_type=source.source_type,
+                source_name=source.source_name,
+                input_text=source.text,
+                warnings=group_warnings,
+                citations=citation_results,
+            )
+
+        latency_ms = int((perf_counter() - started) * 1000)
+        _record_event_safely(
+            event_type="audit_completed",
+            source_type=source.source_type,
+            citation_count=len(citation_results),
+            verified_count=verification_summary.get("VERIFIED", 0),
+            not_found_count=verification_summary.get("NOT_FOUND", 0),
+            ambiguous_count=verification_summary.get("AMBIGUOUS", 0)
+            + verification_summary.get("DERIVED", 0),
+            error_count=verification_summary.get("ERROR", 0),
+            unverified_no_token_count=verification_summary.get("UNVERIFIED_NO_TOKEN", 0),
+            had_warning=bool(group_warnings),
+            latency_ms=latency_ms,
+        )
+
+        result_groups.append(
+            {
+                "source_type": source.source_type,
+                "source_name": source.source_name,
+                "citation_count": len(citation_results),
+                "verification_summary": verification_summary,
+                "citations": [citation_to_context(citation) for citation in citation_results],
+                "warning_messages": group_warnings,
+            }
+        )
 
     return render_dashboard(
         request,
         pasted_text=pasted_text,
-        citations=[citation_to_context(citation) for citation in citation_results],
-        source_type=source_type,
-        warnings=warnings,
-        verification_summary=verification_summary,
+        result_groups=result_groups,
+        warnings=shared_warnings,
     )
 
 

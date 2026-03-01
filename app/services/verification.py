@@ -149,24 +149,25 @@ def verify_citations(
     verifier: CitationVerifier | None = None,
     verification_timeout_seconds: int = 8,
 ) -> list[CitationResult]:
-    if not courtlistener_token:
-        for citation in citations:
-            citation.verification_status = "UNVERIFIED_NO_TOKEN"
-            citation.verification_detail = "No CourtListener token configured."
-        return citations
-
-    active_verifier = verifier or CourtListenerVerifier(
-        token=courtlistener_token,
-        base_url=verification_base_url,
-        timeout_seconds=verification_timeout_seconds,
-    )
+    active_verifier = None
+    if courtlistener_token:
+        active_verifier = verifier or CourtListenerVerifier(
+            token=courtlistener_token,
+            base_url=verification_base_url,
+            timeout_seconds=verification_timeout_seconds,
+        )
 
     for citation in citations:
         if is_derived_citation(citation):
-            citation.verification_status = "AMBIGUOUS"
+            citation.verification_status = "DERIVED"
             citation.verification_detail = (
-                "Derived Id. citation; not directly verified with CourtListener."
+                "Derived citation; not directly verified with CourtListener."
             )
+            continue
+
+        if not courtlistener_token or active_verifier is None:
+            citation.verification_status = "UNVERIFIED_NO_TOKEN"
+            citation.verification_detail = "No CourtListener token configured."
             continue
 
         try:

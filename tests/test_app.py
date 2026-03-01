@@ -9,7 +9,12 @@ from aaa_db.models import AuditRun, Base, CitationResultRecord, TelemetryEvent
 from aaa_db.session import SessionLocal, engine
 from aaa_db.telemetry_repository import get_or_create_install_id
 from app.main import app, create_app
-from app.services.audit import CitationResult, extract_text_from_docx, resolve_id_citations
+from app.services.audit import (
+    CitationResult,
+    extract_citations,
+    extract_text_from_docx,
+    resolve_id_citations,
+)
 from app.services.verification import (
     VerificationResponse,
     map_courtlistener_result,
@@ -44,6 +49,14 @@ def clean_db() -> None:
         db.commit()
 
 
+def _docx_bytes(text_value: str) -> bytes:
+    document = Document()
+    document.add_paragraph(text_value)
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
 def test_app_imports() -> None:
     assert app is not None
 
@@ -62,6 +75,13 @@ def test_html_routes() -> None:
         assert "text/html" in response.headers["content-type"]
 
 
+def test_clear_button_ui_presence() -> None:
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'id="clear-pasted-text"' in response.text
+
+
 def test_post_audit_with_pasted_text_shows_results() -> None:
     response = client.post(
         "/audit",
@@ -69,7 +89,7 @@ def test_post_audit_with_pasted_text_shows_results() -> None:
     )
 
     assert response.status_code == 200
-    assert "Citations found" in response.text
+    assert "Results summary" in response.text
     assert "Brown v. Board" in response.text
 
 
@@ -81,12 +101,7 @@ def test_post_audit_empty_input_shows_validation_message() -> None:
 
 
 def test_extract_text_from_docx_helper() -> None:
-    document = Document()
-    document.add_paragraph("Roe v. Wade, 410 U.S. 113 (1973).")
-    buffer = BytesIO()
-    document.save(buffer)
-
-    extracted_text = extract_text_from_docx(buffer.getvalue())
+    extracted_text = extract_text_from_docx(_docx_bytes("Roe v. Wade, 410 U.S. 113 (1973)."))
 
     assert "Roe v. Wade" in extracted_text
 
@@ -107,11 +122,11 @@ def test_resolve_id_citations_helper() -> None:
 def test_post_audit_unsupported_file_type() -> None:
     response = client.post(
         "/audit",
-        files={"uploaded_file": ("notes.txt", b"Not a supported file", "text/plain")},
+        files={"uploaded_files": ("notes.txt", b"Not a supported file", "text/plain")},
     )
 
     assert response.status_code == 200
-    assert "Unsupported file type. Please upload a .docx or .pdf file." in response.text
+    assert "Unsupported file skipped" in response.text
 
 
 def test_verify_citations_without_token_marks_unverified() -> None:
@@ -178,7 +193,7 @@ def test_map_courtlistener_result_payload_status_300() -> None:
     assert "Multiple" in result.detail
 
 
-def test_verify_citations_marks_id_as_derived_not_directly_verified() -> None:
+def test_verify_citations_marks_id_as_derived() -> None:
     citations = [CitationResult(raw_text="Id. at 50", citation_type="IdCitation")]
 
     verified = verify_citations(
@@ -188,14 +203,16 @@ def test_verify_citations_marks_id_as_derived_not_directly_verified() -> None:
         verifier=StubVerifiedVerifier(),
     )
 
-    assert verified[0].verification_status == "AMBIGUOUS"
-    assert "not directly verified" in (verified[0].verification_detail or "")
+    assert verified[0].verification_status == "DERIVED"
+    assert "Derived citation" in (verified[0].verification_detail or "")
 
 
-def test_dashboard_post_renders_verification_status(monkeypatch) -> None:
+def test_dashboard_post_renders_derived_status(monkeypatch) -> None:
     def fake_verify(citations, **kwargs):  # noqa: ANN001, ANN003
-        citations[0].verification_status = "VERIFIED"
-        citations[0].verification_detail = "Mock verified"
+        citations[0].verification_status = "DERIVED"
+        citations[
+            0
+        ].verification_detail = "Derived citation; not directly verified with CourtListener."
         return citations
 
     monkeypatch.setattr("app.routes.pages.verify_citations", fake_verify)
@@ -206,8 +223,99 @@ def test_dashboard_post_renders_verification_status(monkeypatch) -> None:
     )
 
     assert response.status_code == 200
-    assert "VERIFIED" in response.text
-    assert "Mock verified" in response.text
+    assert "DERIVED" in response.text
+
+
+def test_snippet_context_extraction_is_useful() -> None:
+    text_value = (
+        "Leading text. Brown v. Board of Educ., 347 U.S. 483 (1954). trailing words for context."
+    )
+    citations, _ = extract_citations(text_value)
+
+    assert citations
+    assert citations[0].snippet is not None
+    assert "Leading text" in citations[0].snippet or "trailing words" in citations[0].snippet
+
+
+def test_multiple_file_upload_processes_more_than_one_valid_file() -> None:
+    files = [
+        (
+            "uploaded_files",
+            (
+                "a.docx",
+                _docx_bytes("Brown v. Board of Educ., 347 U.S. 483 (1954)."),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        ),
+        (
+            "uploaded_files",
+            (
+                "b.docx",
+                _docx_bytes("Roe v. Wade, 410 U.S. 113 (1973)."),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        ),
+    ]
+
+    response = client.post("/audit", files=files)
+
+    assert response.status_code == 200
+    assert "Results for" in response.text
+    with SessionLocal() as db:
+        runs = db.query(AuditRun).all()
+    assert len(runs) == 2
+
+
+def test_unsupported_file_in_batch_does_not_block_valid_files() -> None:
+    files = [
+        ("uploaded_files", ("bad.txt", b"unsupported", "text/plain")),
+        (
+            "uploaded_files",
+            (
+                "ok.docx",
+                _docx_bytes("Brown v. Board of Educ., 347 U.S. 483 (1954)."),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        ),
+    ]
+
+    response = client.post("/audit", files=files)
+
+    assert response.status_code == 200
+    assert "Unsupported file skipped" in response.text
+    assert "ok.docx" in response.text
+
+    with SessionLocal() as db:
+        runs = db.query(AuditRun).all()
+    assert len(runs) == 1
+
+
+def test_results_are_grouped_by_file_source() -> None:
+    files = [
+        (
+            "uploaded_files",
+            (
+                "one.docx",
+                _docx_bytes("Brown v. Board of Educ., 347 U.S. 483 (1954)."),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        ),
+        (
+            "uploaded_files",
+            (
+                "two.docx",
+                _docx_bytes("Roe v. Wade, 410 U.S. 113 (1973)."),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        ),
+    ]
+
+    response = client.post("/audit", files=files)
+
+    assert response.status_code == 200
+    assert "Results for" in response.text
+    assert "one.docx" in response.text
+    assert "two.docx" in response.text
 
 
 def test_successful_audit_persists_run_and_citations() -> None:

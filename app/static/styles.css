@@ -82,3 +82,31 @@ button {
   color: #555;
   font-style: italic;
 }
+
+
+.drop-zone {
+  border: 2px dashed #9aa6b2;
+  border-radius: 8px;
+  cursor: pointer;
+  margin: 0.5rem 0;
+  padding: 1rem;
+}
+
+.drop-zone.dragging {
+  background: #f0f7ff;
+}
+
+.drop-zone input[type="file"] {
+  display: none;
+}
+
+.selected-files {
+  margin: 0.4rem 0 0.8rem;
+  padding-left: 1.2rem;
+}
+
+.result-group {
+  border-top: 1px solid #e6e6e6;
+  margin-top: 1rem;
+  padding-top: 0.8rem;
+}
