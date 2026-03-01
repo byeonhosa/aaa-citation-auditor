@@ -1,0 +1,143 @@
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 0 1.5rem;
+}
+
+header {
+  border-bottom: 1px solid #ddd;
+  margin-bottom: 1rem;
+  padding: 1rem 0;
+}
+
+nav a {
+  margin-right: 1rem;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 800px;
+}
+
+textarea {
+  width: 100%;
+}
+
+button {
+  width: fit-content;
+}
+
+.validation-message {
+  color: #8a1f11;
+  font-weight: bold;
+}
+
+.warning-box {
+  background: #fff4e5;
+  border: 1px solid #f2c078;
+  border-radius: 6px;
+  padding: 0.5rem 0.8rem;
+}
+
+.verification-badge {
+  background-color: #eef;
+  border-radius: 4px;
+  display: inline-block;
+  font-size: 0.9rem;
+  padding: 0.1rem 0.4rem;
+}
+
+.summary-grid {
+  display: grid;
+  gap: 0.4rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin: 0.5rem 0 1rem;
+}
+
+.summary-card {
+  background: #f6f8fa;
+  border: 1px solid #e2e6ea;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+}
+
+.summary-status {
+  font-size: 0.8rem;
+}
+
+.summary-count {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.history-item {
+  border-bottom: 1px solid #eee;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.6rem;
+}
+
+.empty-state {
+  color: #555;
+  font-style: italic;
+}
+
+
+.drop-zone {
+  border: 2px dashed #9aa6b2;
+  border-radius: 8px;
+  cursor: pointer;
+  margin: 0.5rem 0;
+  padding: 1rem;
+}
+
+.drop-zone.dragging {
+  background: #f0f7ff;
+}
+
+.drop-zone input[type="file"] {
+  display: none;
+}
+
+.selected-files {
+  margin: 0.4rem 0 0.8rem;
+  padding-left: 1.2rem;
+}
+
+.result-group {
+  border-top: 1px solid #e6e6e6;
+  margin-top: 1rem;
+  padding-top: 0.8rem;
+}
+
+
+.result-filters {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.6rem 0;
+}
+
+.jump-links {
+  margin-top: 0.3rem;
+}
+
+.export-links {
+  font-size: 0.95rem;
+  margin: 0.4rem 0;
+}
+
+.snippet {
+  background: #f9fafc;
+  border-left: 3px solid #d9e2ec;
+  padding: 0.35rem 0.5rem;
+}
+
+.status-verified { background-color: #e7f7ee; }
+.status-not_found { background-color: #fff7e6; }
+.status-ambiguous { background-color: #fff4e5; }
+.status-derived { background-color: #eef3ff; }
+.status-error { background-color: #fdecec; }
+.status-unverified_no_token { background-color: #f0f0f0; }

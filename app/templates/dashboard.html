@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <h2>Audit Dashboard</h2>
+  <p>Paste text or upload one or more legal documents to extract and verify citations.</p>
+
+  <form action="/audit" method="post" enctype="multipart/form-data" id="audit-form">
+    <label for="pasted_text">Pasted Text</label>
+    <textarea id="pasted_text" name="pasted_text" rows="10" placeholder="Paste legal text here...">{{ pasted_text or "" }}</textarea>
+    <button type="button" id="clear-pasted-text">Clear text</button>
+
+    <label for="uploaded_files">Upload .docx or .pdf (multiple supported)</label>
+    <div id="drop-zone" class="drop-zone" tabindex="0">
+      <p>Drag and drop files here, or click to browse.</p>
+      <input id="uploaded_files" name="uploaded_files" type="file" multiple accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+    </div>
+    <ul id="selected-files" class="selected-files"></ul>
+
+    <button type="submit">Audit</button>
+  </form>
+</section>
+
+{% if validation_message %}
+<section>
+  <p class="validation-message">{{ validation_message }}</p>
+</section>
+{% endif %}
+
+{% if warning_messages %}
+<section class="warning-box">
+  <h3>Warnings</h3>
+  <ul>
+    {% for warning in warning_messages %}
+    <li>{{ warning }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if result_groups %}
+<section>
+  <h3>Results summary</h3>
+  <p><strong>Total citations found:</strong> {{ total_citations }}</p>
+
+  <div class="result-filters">
+    <label for="status-filter">Filter by status</label>
+    <select id="status-filter">
+      <option value="ALL">All statuses</option>
+      <option value="VERIFIED">VERIFIED</option>
+      <option value="NOT_FOUND">NOT_FOUND</option>
+      <option value="AMBIGUOUS">AMBIGUOUS</option>
+      <option value="DERIVED">DERIVED</option>
+      <option value="ERROR">ERROR</option>
+      <option value="UNVERIFIED_NO_TOKEN">UNVERIFIED_NO_TOKEN</option>
+    </select>
+
+    <label for="source-filter">Filter by source</label>
+    <select id="source-filter">
+      <option value="ALL">All sources</option>
+      {% for group in result_groups %}
+      <option value="{{ group.source_name or 'pasted-text' }}">{{ group.source_name or 'pasted-text' }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <h4>Jump to source</h4>
+  <ul class="jump-links">
+    {% for group in result_groups %}
+    <li><a href="#result-{{ loop.index }}">{{ group.source_name or 'pasted-text' }} ({{ group.source_type }})</a></li>
+    {% endfor %}
+  </ul>
+</section>
+
+{% for group in result_groups %}
+<section class="result-group" id="result-{{ loop.index }}" data-source="{{ group.source_name or 'pasted-text' }}">
+  <h4>
+    Results for
+    {% if group.source_name %}
+      {{ group.source_name }}
+    {% else %}
+      pasted text
+    {% endif %}
+    ({{ group.source_type }})
+  </h4>
+
+  <p><strong>Citations found:</strong> {{ group.citation_count }}</p>
+  {% if group.run_id %}
+  <p class="export-links">
+    Export: 
+    <a href="/history/{{ group.run_id }}/export?format=markdown">Markdown</a> |
+    <a href="/history/{{ group.run_id }}/export?format=csv">CSV</a> |
+    <a href="/history/{{ group.run_id }}/export?format=html" target="_blank">Printable HTML</a>
+  </p>
+  {% endif %}
+
+  {% if group.verification_summary %}
+  <div class="summary-grid">
+    {% for status, count in group.verification_summary.items() %}
+    <div class="summary-card">
+      <div class="summary-status">{{ status }}</div>
+      <div class="summary-count">{{ count }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if group.warning_messages %}
+  <div class="warning-box">
+    <ul>
+      {% for warning in group.warning_messages %}
+      <li>{{ warning }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if group.citations %}
+  <ul>
+    {% for citation in group.citations %}
+    <li class="citation-item" data-status="{{ citation.verification_status or 'UNKNOWN' }}">
+      <p><strong>Raw text:</strong> {{ citation.raw_text }}</p>
+      <p><strong>Type:</strong> {{ citation.citation_type }}</p>
+      <p><strong>Normalized:</strong> {{ citation.normalized_text or "(not available)" }}</p>
+      <p><strong>Resolved from:</strong> {{ citation.resolved_from or "(unresolved)" }}</p>
+      <p><strong>Verification:</strong> <span class="verification-badge status-{{ (citation.verification_status or 'UNKNOWN') | lower }}">{{ citation.verification_status or "UNKNOWN" }}</span></p>
+      <p><strong>Verification detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
+      <p class="snippet"><strong>Snippet:</strong> {{ citation.snippet or "(snippet unavailable)" }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty-state">No citations were found for this source.</p>
+  {% endif %}
+</section>
+{% endfor %}
+{% endif %}
+
+<script>
+  const textArea = document.getElementById("pasted_text");
+  const clearButton = document.getElementById("clear-pasted-text");
+  const dropZone = document.getElementById("drop-zone");
+  const fileInput = document.getElementById("uploaded_files");
+  const selectedFiles = document.getElementById("selected-files");
+  const statusFilter = document.getElementById("status-filter");
+  const sourceFilter = document.getElementById("source-filter");
+
+  function renderSelectedFiles(files) {
+    selectedFiles.innerHTML = "";
+    Array.from(files).forEach((file) => {
+      const li = document.createElement("li");
+      li.textContent = file.name;
+      selectedFiles.appendChild(li);
+    });
+  }
+
+  function applyFilters() {
+    const selectedStatus = statusFilter ? statusFilter.value : "ALL";
+    const selectedSource = sourceFilter ? sourceFilter.value : "ALL";
+
+    document.querySelectorAll(".result-group").forEach((group) => {
+      const groupSource = group.getAttribute("data-source");
+      const sourceMatch = selectedSource === "ALL" || groupSource === selectedSource;
+      let visibleItems = 0;
+
+      group.querySelectorAll(".citation-item").forEach((item) => {
+        const status = item.getAttribute("data-status");
+        const statusMatch = selectedStatus === "ALL" || status === selectedStatus;
+        const visible = statusMatch && sourceMatch;
+        item.style.display = visible ? "block" : "none";
+        if (visible) visibleItems += 1;
+      });
+
+      group.style.display = sourceMatch ? "block" : "none";
+      const empty = group.querySelector(".empty-state");
+      if (empty && visibleItems === 0 && sourceMatch) {
+        empty.style.display = "block";
+      }
+    });
+  }
+
+  clearButton.addEventListener("click", () => {
+    textArea.value = "";
+  });
+
+  fileInput.addEventListener("change", () => {
+    renderSelectedFiles(fileInput.files);
+  });
+
+  dropZone.addEventListener("click", () => fileInput.click());
+  dropZone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    dropZone.classList.add("dragging");
+  });
+  dropZone.addEventListener("dragleave", () => {
+    dropZone.classList.remove("dragging");
+  });
+  dropZone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dropZone.classList.remove("dragging");
+    fileInput.files = event.dataTransfer.files;
+    renderSelectedFiles(fileInput.files);
+  });
+
+  if (statusFilter) statusFilter.addEventListener("change", applyFilters);
+  if (sourceFilter) sourceFilter.addEventListener("change", applyFilters);
+</script>
+{% endblock %}
