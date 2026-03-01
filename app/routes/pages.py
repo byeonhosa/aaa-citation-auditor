@@ -2,8 +2,8 @@ from contextlib import contextmanager
 from time import perf_counter
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from aaa_db.models import AuditRun
@@ -11,6 +11,11 @@ from aaa_db.repository import get_audit_run, list_audit_runs, save_audit_run
 from aaa_db.session import SessionLocal
 from aaa_db.telemetry_repository import get_or_create_install_id, record_telemetry_event
 from app.services.audit import collect_sources, extract_citations, resolve_id_citations
+from app.services.exporters import (
+    export_csv_for_run,
+    export_markdown_for_run,
+    export_print_html_context,
+)
 from app.services.verification import summarize_verification_statuses, verify_citations
 from app.settings import TEMPLATES_DIR, settings
 
@@ -142,7 +147,7 @@ async def run_audit(
         verification_summary = summarize_verification_statuses(citation_results)
 
         with db_session() as db:
-            save_audit_run(
+            run = save_audit_run(
                 db,
                 source_type=source.source_type,
                 source_name=source.source_name,
@@ -168,6 +173,7 @@ async def run_audit(
 
         result_groups.append(
             {
+                "run_id": run.id,
                 "source_type": source.source_type,
                 "source_name": source.source_name,
                 "citation_count": len(citation_results),
@@ -224,6 +230,44 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
             "citations": citations,
         },
     )
+
+
+@router.get("/history/{run_id}/export")
+def export_run(request: Request, run_id: int, format: str = Query(default="markdown")) -> Response:
+    with db_session() as db:
+        run = get_audit_run(db, run_id)
+        if run is None:
+            _record_event_safely(event_type="missing_run_404")
+            raise HTTPException(status_code=404, detail="Audit run not found")
+
+    _record_event_safely(event_type="export_generated", source_type=run.source_type)
+
+    file_stub = f"audit-run-{run.id}"
+    if format == "csv":
+        content = export_csv_for_run(run)
+        return Response(
+            content=content,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{file_stub}.csv"'},
+        )
+
+    if format in {"markdown", "md"}:
+        content = export_markdown_for_run(run)
+        return PlainTextResponse(
+            content=content,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f'attachment; filename="{file_stub}.md"'},
+        )
+
+    if format in {"html", "print"}:
+        context = export_print_html_context(run)
+        return templates.TemplateResponse(
+            request=request,
+            name="print_export.html",
+            context=context,
+        )
+
+    raise HTTPException(status_code=400, detail="Unsupported export format")
 
 
 @router.get("/settings", response_class=HTMLResponse)

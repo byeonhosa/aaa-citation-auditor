@@ -110,3 +110,34 @@ button {
   margin-top: 1rem;
   padding-top: 0.8rem;
 }
+
+
+.result-filters {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.6rem 0;
+}
+
+.jump-links {
+  margin-top: 0.3rem;
+}
+
+.export-links {
+  font-size: 0.95rem;
+  margin: 0.4rem 0;
+}
+
+.snippet {
+  background: #f9fafc;
+  border-left: 3px solid #d9e2ec;
+  padding: 0.35rem 0.5rem;
+}
+
+.status-verified { background-color: #e7f7ee; }
+.status-not_found { background-color: #fff7e6; }
+.status-ambiguous { background-color: #fff4e5; }
+.status-derived { background-color: #eef3ff; }
+.status-error { background-color: #fdecec; }
+.status-unverified_no_token { background-color: #f0f0f0; }

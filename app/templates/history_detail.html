@@ -19,6 +19,13 @@
     ERROR={{ run.error_count }},
     UNVERIFIED_NO_TOKEN={{ run.unverified_no_token_count }}
   </p>
+  <p class="export-links">
+    Export: 
+    <a href="/history/{{ run.id }}/export?format=markdown">Markdown</a> |
+    <a href="/history/{{ run.id }}/export?format=csv">CSV</a> |
+    <a href="/history/{{ run.id }}/export?format=html" target="_blank">Printable HTML</a>
+  </p>
+  <p><a href="/history">Back to History</a> · <a href="/">Back to Dashboard</a></p>
 </section>
 
 <section>
