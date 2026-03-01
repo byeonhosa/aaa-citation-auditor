@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <h2>Audit Run #{{ run.id }}</h2>
+  <p><strong>Created:</strong> {{ run.created_at }}</p>
+  <p><strong>Source:</strong> {{ run.source_type }}{% if run.source_name %} ({{ run.source_name }}){% endif %}</p>
+  <p><strong>Citations:</strong> {{ run.citation_count }}</p>
+  {% if run.input_text_excerpt %}
+  <p><strong>Input excerpt:</strong> {{ run.input_text_excerpt }}</p>
+  {% endif %}
+  {% if run.warning_text %}
+  <p><strong>Warnings:</strong> {{ run.warning_text }}</p>
+  {% endif %}
+  <p>
+    <strong>Verification summary:</strong>
+    VERIFIED={{ run.verified_count }},
+    NOT_FOUND={{ run.not_found_count }},
+    AMBIGUOUS={{ run.ambiguous_count }},
+    ERROR={{ run.error_count }},
+    UNVERIFIED_NO_TOKEN={{ run.unverified_no_token_count }}
+  </p>
+  <p class="export-links">
+    Export: 
+    <a href="/history/{{ run.id }}/export?format=markdown">Markdown</a> |
+    <a href="/history/{{ run.id }}/export?format=csv">CSV</a> |
+    <a href="/history/{{ run.id }}/export?format=html" target="_blank">Printable HTML</a>
+  </p>
+  <p><a href="/history">Back to History</a> · <a href="/">Back to Dashboard</a></p>
+</section>
+
+
+<section class="ai-memo-box">
+  <h3>AI Risk Memo (Advisory)</h3>
+  {% if ai_memo and ai_memo.available %}
+  <p><strong>Risk level:</strong> {{ ai_memo.risk_level }}</p>
+  <p><strong>Summary:</strong> {{ ai_memo.summary }}</p>
+
+  {% if ai_memo.top_issues %}
+  <p><strong>Top issues:</strong></p>
+  <ul>
+    {% for issue in ai_memo.top_issues %}
+    <li>{{ issue }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if ai_memo.recommended_actions %}
+  <p><strong>Recommended actions:</strong></p>
+  <ul>
+    {% for action in ai_memo.recommended_actions %}
+    <li>{{ action }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% else %}
+  <p class="empty-state">{{ ai_memo.unavailable_reason if ai_memo else "AI memo unavailable." }}</p>
+  {% endif %}
+  <p class="advisory-note"><em>{{ (ai_memo.advisory_note if ai_memo else "AI analysis is advisory only. Deterministic verification statuses remain the source of truth.") }}</em></p>
+</section>
+
+<section>
+  <h3>Saved citations</h3>
+  {% if citations %}
+  <ul>
+    {% for citation in citations %}
+    <li>
+      <p><strong>Raw text:</strong> {{ citation.raw_text }}</p>
+      <p><strong>Type:</strong> {{ citation.citation_type }}</p>
+      <p><strong>Normalized:</strong> {{ citation.normalized_text or "(not available)" }}</p>
+      <p><strong>Resolved from:</strong> {{ citation.resolved_from or "(unresolved)" }}</p>
+      <p><strong>Verification:</strong> {{ citation.verification_status or "UNKNOWN" }}</p>
+      <p><strong>Verification detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
+      <p><strong>Snippet:</strong> {{ citation.snippet or "(snippet unavailable)" }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No citations saved for this run.</p>
+  {% endif %}
+</section>
+{% endblock %}

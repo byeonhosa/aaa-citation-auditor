@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ title }}</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 1rem 2rem; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border: 1px solid #ddd; padding: 0.5rem; vertical-align: top; }
+      th { background: #f5f5f5; text-align: left; }
+    </style>
+  </head>
+  <body>
+    <h1>AAA Export - Audit Run #{{ run.id }}</h1>
+    <p><strong>Created:</strong> {{ run.created_at }}</p>
+    <p><strong>Source:</strong> {{ run.source_name or 'pasted-text' }} ({{ run.source_type }})</p>
+    <p><strong>Citations:</strong> {{ run.citation_count }}</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Source</th>
+          <th>Raw text</th>
+          <th>Type</th>
+          <th>Normalized</th>
+          <th>Resolved from</th>
+          <th>Status</th>
+          <th>Detail</th>
+          <th>Snippet</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>{{ row.source }}</td>
+          <td>{{ row.raw_text }}</td>
+          <td>{{ row.citation_type }}</td>
+          <td>{{ row.normalized_text or "" }}</td>
+          <td>{{ row.resolved_from or "" }}</td>
+          <td>{{ row.verification_status or "" }}</td>
+          <td>{{ row.verification_detail or "" }}</td>
+          <td>{{ row.snippet or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </body>
+</html>
