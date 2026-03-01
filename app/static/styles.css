@@ -141,3 +141,17 @@ button {
 .status-derived { background-color: #eef3ff; }
 .status-error { background-color: #fdecec; }
 .status-unverified_no_token { background-color: #f0f0f0; }
+
+
+.ai-memo-box {
+  background: #f7fafc;
+  border: 1px solid #d6e4f0;
+  border-radius: 6px;
+  margin: 0.8rem 0;
+  padding: 0.6rem 0.8rem;
+}
+
+.advisory-note {
+  color: #444;
+  margin-top: 0.5rem;
+}

@@ -104,6 +104,35 @@
   </div>
   {% endif %}
 
+  <div class="ai-memo-box">
+    <h5>AI Risk Memo (Advisory)</h5>
+    {% if group.ai_memo and group.ai_memo.available %}
+    <p><strong>Risk level:</strong> {{ group.ai_memo.risk_level }}</p>
+    <p><strong>Summary:</strong> {{ group.ai_memo.summary }}</p>
+
+    {% if group.ai_memo.top_issues %}
+    <p><strong>Top issues:</strong></p>
+    <ul>
+      {% for issue in group.ai_memo.top_issues %}
+      <li>{{ issue }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if group.ai_memo.recommended_actions %}
+    <p><strong>Recommended actions:</strong></p>
+    <ul>
+      {% for action in group.ai_memo.recommended_actions %}
+      <li>{{ action }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% else %}
+    <p class="empty-state">{{ group.ai_memo.unavailable_reason if group.ai_memo else "AI memo unavailable." }}</p>
+    {% endif %}
+    <p class="advisory-note"><em>{{ (group.ai_memo.advisory_note if group.ai_memo else "AI analysis is advisory only. Deterministic verification statuses remain the source of truth.") }}</em></p>
+  </div>
+
   {% if group.warning_messages %}
   <div class="warning-box">
     <ul>
