@@ -45,6 +45,7 @@ class CitationResultRecord(Base):
     resolved_from: Mapped[str | None] = mapped_column(Text, nullable=True)
     verification_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
     verification_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     audit_run: Mapped[AuditRun] = relationship(back_populates="citations")
 

@@ -122,3 +122,9 @@ ruff format .
 - database-backed audit history
 - authentication/authorization
 - Docker/background workers/Alembic
+
+
+## Local schema note (v0, no migrations)
+
+This prototype currently uses `Base.metadata.create_all(...)` and does not include Alembic migrations yet.
+If you pull schema changes (for example, new columns like citation snippets) and your local `aaa.db` was created by an older version, delete `aaa.db` and restart the app to recreate tables with the latest schema.

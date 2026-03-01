@@ -33,6 +33,7 @@
       <p><strong>Resolved from:</strong> {{ citation.resolved_from or "(unresolved)" }}</p>
       <p><strong>Verification:</strong> {{ citation.verification_status or "UNKNOWN" }}</p>
       <p><strong>Verification detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
+      <p><strong>Snippet:</strong> {{ citation.snippet or "(snippet unavailable)" }}</p>
     </li>
     {% endfor %}
   </ul>
