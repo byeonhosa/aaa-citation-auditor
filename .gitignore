@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# AAA local runtime artifacts
+aaa.db
+*.db
+inspect_telemetry.py
+.aaa/
