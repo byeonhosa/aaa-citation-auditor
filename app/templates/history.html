@@ -6,19 +6,18 @@
   {% if runs %}
   <ul>
     {% for run in runs %}
-    <li>
+    <li class="history-item">
       <p><strong>Run:</strong> <a href="/history/{{ run.id }}">#{{ run.id }}</a></p>
       <p><strong>Created:</strong> {{ run.created_at }}</p>
       <p><strong>Source:</strong> {{ run.source_type }}{% if run.source_name %} ({{ run.source_name }}){% endif %}</p>
       <p><strong>Citations:</strong> {{ run.citation_count }}</p>
-      <p>
-        <strong>Verification summary:</strong>
-        VERIFIED={{ run.verified_count }},
-        NOT_FOUND={{ run.not_found_count }},
-        AMBIGUOUS={{ run.ambiguous_count }},
-        ERROR={{ run.error_count }},
-        UNVERIFIED_NO_TOKEN={{ run.unverified_no_token_count }}
-      </p>
+      <div class="summary-grid">
+        <div class="summary-card"><div class="summary-status">VERIFIED</div><div class="summary-count">{{ run.verified_count }}</div></div>
+        <div class="summary-card"><div class="summary-status">NOT_FOUND</div><div class="summary-count">{{ run.not_found_count }}</div></div>
+        <div class="summary-card"><div class="summary-status">AMBIGUOUS</div><div class="summary-count">{{ run.ambiguous_count }}</div></div>
+        <div class="summary-card"><div class="summary-status">ERROR</div><div class="summary-count">{{ run.error_count }}</div></div>
+        <div class="summary-card"><div class="summary-status">UNVERIFIED_NO_TOKEN</div><div class="summary-count">{{ run.unverified_no_token_count }}</div></div>
+      </div>
     </li>
     {% endfor %}
   </ul>

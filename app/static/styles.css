@@ -34,10 +34,51 @@ button {
   font-weight: bold;
 }
 
+.warning-box {
+  background: #fff4e5;
+  border: 1px solid #f2c078;
+  border-radius: 6px;
+  padding: 0.5rem 0.8rem;
+}
+
 .verification-badge {
   background-color: #eef;
   border-radius: 4px;
   display: inline-block;
   font-size: 0.9rem;
   padding: 0.1rem 0.4rem;
+}
+
+.summary-grid {
+  display: grid;
+  gap: 0.4rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin: 0.5rem 0 1rem;
+}
+
+.summary-card {
+  background: #f6f8fa;
+  border: 1px solid #e2e6ea;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+}
+
+.summary-status {
+  font-size: 0.8rem;
+}
+
+.summary-count {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.history-item {
+  border-bottom: 1px solid #eee;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.6rem;
+}
+
+.empty-state {
+  color: #555;
+  font-style: italic;
 }

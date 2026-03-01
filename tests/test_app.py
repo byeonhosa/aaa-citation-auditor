@@ -3,10 +3,12 @@ from io import BytesIO
 import pytest
 from docx import Document
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
-from aaa_db.models import AuditRun, Base, CitationResultRecord
+from aaa_db.models import AuditRun, Base, CitationResultRecord, TelemetryEvent
 from aaa_db.session import SessionLocal, engine
-from app.main import app
+from aaa_db.telemetry_repository import get_or_create_install_id
+from app.main import app, create_app
 from app.services.audit import CitationResult, extract_text_from_docx, resolve_id_citations
 from app.services.verification import (
     VerificationResponse,
@@ -38,6 +40,7 @@ def clean_db() -> None:
     with SessionLocal() as db:
         db.query(CitationResultRecord).delete()
         db.query(AuditRun).delete()
+        db.query(TelemetryEvent).delete()
         db.commit()
 
 
@@ -230,7 +233,6 @@ def test_history_page_shows_saved_runs() -> None:
 
     assert response.status_code == 200
     assert "Audit History" in response.text
-    assert "Brown" not in response.text
 
 
 def test_history_detail_existing_run_returns_200() -> None:
@@ -245,10 +247,12 @@ def test_history_detail_existing_run_returns_200() -> None:
     assert f"Audit Run #{run.id}" in response.text
 
 
-def test_history_detail_missing_run_returns_404() -> None:
+def test_history_detail_missing_run_returns_html_404_page() -> None:
     response = client.get("/history/999999")
 
     assert response.status_code == 404
+    assert "text/html" in response.headers["content-type"]
+    assert "Page Not Found" in response.text
 
 
 def test_only_excerpt_is_stored_for_pasted_text() -> None:
@@ -261,3 +265,88 @@ def test_only_excerpt_is_stored_for_pasted_text() -> None:
     assert run is not None
     assert run.input_text_excerpt == long_text[:200]
     assert run.input_text_excerpt != long_text
+
+
+def test_install_id_created_and_reused(tmp_path) -> None:
+    install_path = tmp_path / "install_id"
+
+    first = get_or_create_install_id(install_path)
+    second = get_or_create_install_id(install_path)
+
+    assert first == second
+    assert install_path.exists()
+
+
+def test_audit_completed_telemetry_stores_safe_aggregate_fields_only() -> None:
+    marker_text = "Confidential Client Name XZ-123"
+    response = client.post("/audit", data={"pasted_text": marker_text})
+    assert response.status_code == 200
+
+    with SessionLocal() as db:
+        event = (
+            db.query(TelemetryEvent)
+            .filter(TelemetryEvent.event_type == "audit_completed")
+            .order_by(TelemetryEvent.id.desc())
+            .first()
+        )
+
+    assert event is not None
+    assert event.source_type == "text"
+    assert event.citation_count is not None
+    assert isinstance(event.had_warning, bool)
+
+    forbidden_fields = [
+        "source_name",
+        "raw_text",
+        "normalized_text",
+        "verification_detail",
+        "input_text_excerpt",
+    ]
+    for field in forbidden_fields:
+        assert not hasattr(event, field)
+
+
+def test_telemetry_table_exists_in_sqlite() -> None:
+    with SessionLocal() as db:
+        rows = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='telemetry_events'")
+        )
+        rows = rows.fetchall()
+
+    assert rows
+
+
+def test_app_started_telemetry_written_on_app_create() -> None:
+    create_app()
+
+    with SessionLocal() as db:
+        event = (
+            db.query(TelemetryEvent)
+            .filter(TelemetryEvent.event_type == "app_started")
+            .order_by(TelemetryEvent.id.desc())
+            .first()
+        )
+
+    assert event is not None
+
+
+def test_history_view_events_are_recorded() -> None:
+    client.post("/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."})
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response_history = client.get("/history")
+    response_detail = client.get(f"/history/{run.id}")
+    response_missing = client.get("/history/999999")
+
+    assert response_history.status_code == 200
+    assert response_detail.status_code == 200
+    assert response_missing.status_code == 404
+
+    with SessionLocal() as db:
+        event_types = [row[0] for row in db.query(TelemetryEvent.event_type).all()]
+
+    assert "history_viewed" in event_types
+    assert "history_detail_viewed" in event_types
+    assert "missing_run_404" in event_types

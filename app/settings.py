@@ -11,6 +11,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 class Settings(BaseSettings):
     app_name: str = "AAA - AI Agent Auditor"
     debug: bool = False
+    app_version: str | None = "0.1.0"
     database_url: str = "sqlite:///./aaa.db"
 
     courtlistener_token: str | None = None

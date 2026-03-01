@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -8,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from aaa_db.models import AuditRun
 from aaa_db.repository import get_audit_run, list_audit_runs, save_audit_run
 from aaa_db.session import SessionLocal
+from aaa_db.telemetry_repository import get_or_create_install_id, record_telemetry_event
 from app.services.audit import extract_citations, extract_source_text, resolve_id_citations
 from app.services.verification import summarize_verification_statuses, verify_citations
 from app.settings import TEMPLATES_DIR, settings
@@ -26,6 +28,20 @@ def db_session():
         yield db
     finally:
         db.close()
+
+
+def _record_event_safely(**kwargs) -> None:  # noqa: ANN003
+    try:
+        install_id = get_or_create_install_id()
+        with db_session() as db:
+            record_telemetry_event(
+                db,
+                install_id=install_id,
+                app_version=settings.app_version,
+                **kwargs,
+            )
+    except Exception:
+        pass
 
 
 def citation_to_context(citation: Any) -> dict[str, str | None]:
@@ -97,6 +113,7 @@ async def run_audit(
     pasted_text: str = PASTED_TEXT_FORM,
     uploaded_file: UploadFile | None = UPLOADED_FILE_FORM,
 ) -> HTMLResponse:
+    started = perf_counter()
     text, source_type, warnings, validation_message = await extract_source_text(
         pasted_text, uploaded_file
     )
@@ -134,6 +151,20 @@ async def run_audit(
             citations=citation_results,
         )
 
+    latency_ms = int((perf_counter() - started) * 1000)
+    _record_event_safely(
+        event_type="audit_completed",
+        source_type=source_type,
+        citation_count=len(citation_results),
+        verified_count=verification_summary.get("VERIFIED", 0),
+        not_found_count=verification_summary.get("NOT_FOUND", 0),
+        ambiguous_count=verification_summary.get("AMBIGUOUS", 0),
+        error_count=verification_summary.get("ERROR", 0),
+        unverified_no_token_count=verification_summary.get("UNVERIFIED_NO_TOKEN", 0),
+        had_warning=bool(warnings),
+        latency_ms=latency_ms,
+    )
+
     return render_dashboard(
         request,
         pasted_text=pasted_text,
@@ -148,6 +179,8 @@ async def run_audit(
 def history(request: Request) -> HTMLResponse:
     with db_session() as db:
         runs = [run_to_context(run) for run in list_audit_runs(db)]
+
+    _record_event_safely(event_type="history_viewed")
 
     return templates.TemplateResponse(
         request=request,
@@ -164,10 +197,13 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
     with db_session() as db:
         run = get_audit_run(db, run_id)
         if run is None:
+            _record_event_safely(event_type="missing_run_404")
             raise HTTPException(status_code=404, detail="Audit run not found")
 
         run_context = run_to_context(run)
         citations = [citation_to_context(citation) for citation in run.citations]
+
+    _record_event_safely(event_type="history_detail_viewed")
 
     return templates.TemplateResponse(
         request=request,
