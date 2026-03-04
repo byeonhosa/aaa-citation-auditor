@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     verification_timeout_seconds: int = 8
 
     ai_memo_enabled: bool = False
+    ai_memo_include_content: bool = False
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-mini"
     ai_timeout_seconds: int = 10

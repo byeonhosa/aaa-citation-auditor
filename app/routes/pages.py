@@ -86,13 +86,18 @@ def build_ai_memo_input(
     verification_summary: dict[str, int],
     citations: list[dict[str, str | None]],
     warnings: list[str],
+    include_content: bool,
 ) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "source_type": source_type,
         "source_name": source_name,
         "verification_summary": verification_summary,
         "citation_count": len(citations),
-        "citations": [
+        "warnings_present": bool(warnings),
+    }
+
+    if include_content:
+        payload["citations"] = [
             {
                 "raw_text": citation.get("raw_text"),
                 "citation_type": citation.get("citation_type"),
@@ -102,9 +107,10 @@ def build_ai_memo_input(
                 "snippet": citation.get("snippet"),
             }
             for citation in citations
-        ],
-        "warnings": warnings,
-    }
+        ]
+        payload["warnings"] = warnings
+
+    return payload
 
 
 def generate_ai_memo_for_group(
@@ -121,6 +127,7 @@ def generate_ai_memo_for_group(
         verification_summary=verification_summary,
         citations=citations,
         warnings=warnings,
+        include_content=settings.ai_memo_include_content,
     )
 
     try:
