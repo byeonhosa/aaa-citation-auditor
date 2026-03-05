@@ -10,7 +10,7 @@ from aaa_db.models import AuditRun, Base, CitationResultRecord, TelemetryEvent
 from aaa_db.session import SessionLocal, engine
 from aaa_db.telemetry_repository import get_or_create_install_id
 from app.main import app, create_app
-from app.routes.pages import citation_to_context
+from app.routes.pages import build_ai_memo_input, citation_to_context
 from app.services.ai_risk_memo import RiskMemo
 from app.services.audit import (
     CitationResult,
@@ -83,6 +83,63 @@ def test_clear_button_ui_presence() -> None:
 
     assert response.status_code == 200
     assert 'id="clear-pasted-text"' in response.text
+
+
+def test_base_template_has_no_external_htmx_cdn_script() -> None:
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "unpkg.com/htmx.org" not in response.text
+
+
+def test_ai_memo_input_excludes_content_by_default() -> None:
+    payload = build_ai_memo_input(
+        source_type="text",
+        source_name=None,
+        verification_summary={"VERIFIED": 1},
+        citations=[
+            {
+                "raw_text": "Sensitive case text",
+                "citation_type": "FullCaseCitation",
+                "resolved_from": None,
+                "verification_status": "VERIFIED",
+                "verification_detail": "Matched",
+                "snippet": "Sensitive snippet",
+            }
+        ],
+        warnings=["Sensitive warning"],
+        include_content=False,
+    )
+
+    assert payload["citation_count"] == 1
+    assert payload["warnings_present"] is True
+    assert "citations" not in payload
+    assert "warnings" not in payload
+
+
+def test_ai_memo_input_can_include_content_when_enabled() -> None:
+    payload = build_ai_memo_input(
+        source_type="text",
+        source_name=None,
+        verification_summary={"VERIFIED": 1},
+        citations=[
+            {
+                "raw_text": "Brown v. Board",
+                "citation_type": "FullCaseCitation",
+                "resolved_from": None,
+                "verification_status": "VERIFIED",
+                "verification_detail": "Matched",
+                "snippet": "Snippet",
+            }
+        ],
+        warnings=["Warning text"],
+        include_content=True,
+    )
+
+    assert payload["citation_count"] == 1
+    assert payload["warnings_present"] is True
+    assert payload["citations"][0]["raw_text"] == "Brown v. Board"
+    assert payload["warnings"] == ["Warning text"]
 
 
 def test_post_audit_with_pasted_text_shows_results() -> None:
