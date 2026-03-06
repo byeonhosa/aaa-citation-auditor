@@ -160,8 +160,9 @@ def verify_citations(
     for citation in citations:
         if is_derived_citation(citation):
             citation.verification_status = "DERIVED"
+            parent = citation.resolved_from or "unknown prior citation"
             citation.verification_detail = (
-                "Derived citation; not directly verified with CourtListener."
+                f"Derived from prior citation ({parent}); not independently verified."
             )
             continue
 
