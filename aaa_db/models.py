@@ -21,6 +21,7 @@ class AuditRun(Base):
     verified_count: Mapped[int] = mapped_column(Integer, default=0)
     not_found_count: Mapped[int] = mapped_column(Integer, default=0)
     ambiguous_count: Mapped[int] = mapped_column(Integer, default=0)
+    derived_count: Mapped[int] = mapped_column(Integer, default=0)
     error_count: Mapped[int] = mapped_column(Integer, default=0)
     unverified_no_token_count: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -65,6 +66,7 @@ class TelemetryEvent(Base):
     verified_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     not_found_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ambiguous_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    derived_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     unverified_no_token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

@@ -72,6 +72,7 @@ def run_to_context(run: AuditRun) -> dict[str, Any]:
         "verified_count": run.verified_count,
         "not_found_count": run.not_found_count,
         "ambiguous_count": run.ambiguous_count,
+        "derived_count": run.derived_count,
         "error_count": run.error_count,
         "unverified_no_token_count": run.unverified_no_token_count,
         "input_text_excerpt": run.input_text_excerpt,
@@ -227,8 +228,8 @@ async def run_audit(
             citation_count=len(citation_results),
             verified_count=verification_summary.get("VERIFIED", 0),
             not_found_count=verification_summary.get("NOT_FOUND", 0),
-            ambiguous_count=verification_summary.get("AMBIGUOUS", 0)
-            + verification_summary.get("DERIVED", 0),
+            ambiguous_count=verification_summary.get("AMBIGUOUS", 0),
+            derived_count=verification_summary.get("DERIVED", 0),
             error_count=verification_summary.get("ERROR", 0),
             unverified_no_token_count=verification_summary.get("UNVERIFIED_NO_TOKEN", 0),
             had_warning=bool(group_warnings),

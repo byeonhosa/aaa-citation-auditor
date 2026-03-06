@@ -138,7 +138,8 @@ button {
 .status-verified { background-color: #e7f7ee; }
 .status-not_found { background-color: #fff7e6; }
 .status-ambiguous { background-color: #fff4e5; }
-.status-derived { background-color: #eef3ff; }
+.status-derived { background-color: #eef3ff; color: #4a6785; }
+.summary-card-derived { background: #eef3ff; border-color: #c5d5ea; }
 .status-error { background-color: #fdecec; }
 .status-unverified_no_token { background-color: #f0f0f0; }
 

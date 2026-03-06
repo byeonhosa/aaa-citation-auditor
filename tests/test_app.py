@@ -264,7 +264,7 @@ def test_verify_citations_marks_id_as_derived() -> None:
     )
 
     assert verified[0].verification_status == "DERIVED"
-    assert "Derived citation" in (verified[0].verification_detail or "")
+    assert "Derived from prior citation" in (verified[0].verification_detail or "")
 
 
 def test_dashboard_post_renders_derived_status(monkeypatch) -> None:
@@ -272,7 +272,9 @@ def test_dashboard_post_renders_derived_status(monkeypatch) -> None:
         citations[0].verification_status = "DERIVED"
         citations[
             0
-        ].verification_detail = "Derived citation; not directly verified with CourtListener."
+        ].verification_detail = (
+            "Derived from prior citation (unknown prior citation); not independently verified."
+        )
         return citations
 
     monkeypatch.setattr("app.routes.pages.verify_citations", fake_verify)
@@ -281,6 +283,147 @@ def test_dashboard_post_renders_derived_status(monkeypatch) -> None:
         "/audit",
         data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."},
     )
+
+    assert response.status_code == 200
+    assert "DERIVED" in response.text
+
+
+def test_derived_citation_includes_resolved_from_in_detail() -> None:
+    citations = [
+        CitationResult(
+            raw_text="Id. at 50",
+            citation_type="IdCitation",
+            resolved_from="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+        ),
+    ]
+
+    verified = verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=StubVerifiedVerifier(),
+    )
+
+    assert verified[0].verification_status == "DERIVED"
+    assert "Brown v. Board" in (verified[0].verification_detail or "")
+
+
+def test_summary_counts_separate_derived_from_ambiguous() -> None:
+    from app.services.verification import summarize_verification_statuses
+
+    citations = [
+        CitationResult(
+            raw_text="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+            citation_type="FullCaseCitation",
+            verification_status="VERIFIED",
+        ),
+        CitationResult(
+            raw_text="Id. at 486",
+            citation_type="IdCitation",
+            verification_status="DERIVED",
+        ),
+        CitationResult(
+            raw_text="Id. at 490",
+            citation_type="IdCitation",
+            verification_status="DERIVED",
+        ),
+        CitationResult(
+            raw_text="Smith v. Jones, 100 U.S. 200 (2000).",
+            citation_type="FullCaseCitation",
+            verification_status="AMBIGUOUS",
+        ),
+    ]
+
+    summary = summarize_verification_statuses(citations)
+
+    assert summary["DERIVED"] == 2
+    assert summary["AMBIGUOUS"] == 1
+    assert summary["VERIFIED"] == 1
+
+
+def test_repository_separates_derived_and_ambiguous_counts() -> None:
+    from aaa_db.repository import save_audit_run
+
+    citations = [
+        CitationResult(
+            raw_text="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+            citation_type="FullCaseCitation",
+            verification_status="VERIFIED",
+            verification_detail="Matched.",
+        ),
+        CitationResult(
+            raw_text="Id. at 486",
+            citation_type="IdCitation",
+            verification_status="DERIVED",
+            verification_detail="Derived from prior citation.",
+        ),
+        CitationResult(
+            raw_text="Id. at 490",
+            citation_type="IdCitation",
+            verification_status="DERIVED",
+            verification_detail="Derived from prior citation.",
+        ),
+        CitationResult(
+            raw_text="Smith v. Jones, 100 U.S. 200 (2000).",
+            citation_type="FullCaseCitation",
+            verification_status="AMBIGUOUS",
+            verification_detail="Multiple matches.",
+        ),
+    ]
+
+    with SessionLocal() as db:
+        run = save_audit_run(
+            db,
+            source_type="text",
+            source_name=None,
+            input_text="Test text",
+            warnings=[],
+            citations=citations,
+        )
+
+    assert run.citation_count == 4
+    assert run.verified_count == 1
+    assert run.derived_count == 2
+    assert run.ambiguous_count == 1
+
+
+def test_markdown_export_includes_derived_count() -> None:
+    client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954). Id. at 486."},
+    )
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response = client.get(f"/history/{run.id}/export?format=markdown")
+
+    assert response.status_code == 200
+    assert "DERIVED=" in response.text
+
+
+def test_history_page_shows_derived_count() -> None:
+    client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954). Id. at 486."},
+    )
+
+    response = client.get("/history")
+
+    assert response.status_code == 200
+    assert "DERIVED" in response.text
+
+
+def test_history_detail_shows_derived_count() -> None:
+    client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954). Id. at 486."},
+    )
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response = client.get(f"/history/{run.id}")
 
     assert response.status_code == 200
     assert "DERIVED" in response.text
