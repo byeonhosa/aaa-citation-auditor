@@ -1,24 +1,31 @@
+from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from aaa_db.models import Base, TelemetryEvent
-from aaa_db.session import SessionLocal, engine
+from aaa_db.session import SessionLocal
 from aaa_db.telemetry_repository import get_or_create_install_id, record_telemetry_event
+from alembic import command as alembic_command
 from app.routes.api import router as api_router
 from app.routes.pages import router as pages_router
-from app.settings import STATIC_DIR, TEMPLATES_DIR, settings
+from app.settings import PROJECT_ROOT, STATIC_DIR, TEMPLATES_DIR, settings
+
+
+def _run_migrations() -> None:
+    """Apply any pending Alembic migrations on startup."""
+    alembic_cfg = AlembicConfig(str(PROJECT_ROOT / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
+    alembic_command.upgrade(alembic_cfg, "head")
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, debug=settings.debug)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # Ensure all ORM models are imported/registered before table creation.
-    _ = TelemetryEvent
-    Base.metadata.create_all(bind=engine)
+    # Apply pending database migrations (replaces Base.metadata.create_all).
+    _run_migrations()
 
     app.include_router(pages_router)
     app.include_router(api_router)
