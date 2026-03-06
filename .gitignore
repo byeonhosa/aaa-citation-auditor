@@ -208,6 +208,4 @@ __marimo__/
 
 # AAA local runtime artifacts
 aaa.db
-*.db
-inspect_telemetry.py
 .aaa/
