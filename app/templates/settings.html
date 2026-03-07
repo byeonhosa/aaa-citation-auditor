@@ -4,4 +4,21 @@
   <h2>Settings</h2>
   <p>Local instance settings and integrations will be configurable here.</p>
 </section>
+
+<section>
+  <h3>Resolution Cache</h3>
+  <p>
+    The resolution cache stores past disambiguation choices (heuristic and user-selected) so
+    citations can be resolved instantly on future audits without querying CourtListener again.
+  </p>
+  {% if cache_cleared %}
+  <p class="success-message">
+    Resolution cache cleared — {{ cache_cleared_count }} entr{{ "y" if cache_cleared_count == 1 else "ies" }} removed.
+  </p>
+  {% endif %}
+  <form method="post" action="/settings/clear-cache"
+        onsubmit="return confirm('Clear the entire resolution cache? All cached disambiguation choices will be removed and future audits will re-query CourtListener for those citations.');">
+    <button type="submit">Clear resolution cache</button>
+  </form>
+</section>
 {% endblock %}

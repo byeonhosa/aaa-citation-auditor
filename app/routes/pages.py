@@ -10,9 +10,11 @@ from fastapi.templating import Jinja2Templates
 
 from aaa_db.models import AuditRun
 from aaa_db.repository import (
+    clear_resolution_cache,
     get_audit_run,
     get_citation,
     list_audit_runs,
+    lookup_resolution_cache,
     resolve_citation,
     save_audit_run,
 )
@@ -251,12 +253,15 @@ async def run_audit(
             citation_results, settings.max_citations_per_run
         )
         citation_results = resolve_id_citations(citation_results)
+        with db_session() as db:
+            cache = lookup_resolution_cache(db)
         citation_results = verify_citations(
             citation_results,
             courtlistener_token=settings.courtlistener_token,
             verification_base_url=settings.verification_base_url,
             courtlistener_timeout_seconds=settings.courtlistener_timeout_seconds,
             batch_verification=settings.batch_verification,
+            resolution_cache=cache,
         )
 
         group_warnings = [*source.warnings, *parsing_warnings]
@@ -458,4 +463,20 @@ def settings_page(request: Request) -> HTMLResponse:
         request=request,
         name="settings.html",
         context={"title": "Settings"},
+    )
+
+
+@router.post("/settings/clear-cache", response_class=HTMLResponse)
+def clear_cache(request: Request) -> HTMLResponse:
+    with db_session() as db:
+        count = clear_resolution_cache(db)
+    logger.info("Resolution cache cleared via settings: %d entries removed", count)
+    return templates.TemplateResponse(
+        request=request,
+        name="settings.html",
+        context={
+            "title": "Settings",
+            "cache_cleared": True,
+            "cache_cleared_count": count,
+        },
     )

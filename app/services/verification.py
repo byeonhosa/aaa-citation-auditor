@@ -417,11 +417,13 @@ def verify_citations(
     verifier: CitationVerifier | None = None,
     courtlistener_timeout_seconds: int = 30,
     batch_verification: bool = True,
+    resolution_cache: dict[str, Any] | None = None,
 ) -> list[CitationResult]:
-    # ── First pass: handle STATUTE, DERIVED, and NO_TOKEN ──
+    # ── First pass: handle STATUTE, DERIVED, NO_TOKEN, and cache hits ──
     verifiable: list[CitationResult] = []
     statute_count = 0
     derived_count = 0
+    cache_count = 0
 
     for citation in citations:
         if is_statute_citation(citation):
@@ -446,14 +448,38 @@ def verify_citations(
             citation.verification_detail = "No CourtListener token configured."
             continue
 
+        # Cache-first: check resolution cache before sending to CourtListener
+        if resolution_cache is not None:
+            cache_key = citation.normalized_text or citation.raw_text
+            cached = resolution_cache.get(cache_key)
+            if cached is not None:
+                citation.verification_status = "VERIFIED"
+                citation.selected_cluster_id = cached["cluster_id"]
+                citation.resolution_method = "cache"
+                case_name = cached.get("case_name") or ""
+                detail = f"Resolved from cache (cluster {cached['cluster_id']})"
+                if case_name:
+                    detail += f". {case_name}"
+                citation.verification_detail = detail + "."
+                cache_count += 1
+                logger.debug(
+                    "Cache hit for citation: %r → cluster %d",
+                    citation.raw_text,
+                    cached["cluster_id"],
+                )
+                continue
+
         verifiable.append(citation)
 
+    if cache_count:
+        logger.info("Cache resolved %d citation(s) before CourtListener", cache_count)
     logger.info(
-        "Verification starting: %d total, %d case law, %d statute, %d derived",
+        "Verification starting: %d total, %d case law, %d statute, %d derived, %d cache",
         len(citations),
         len(verifiable),
         statute_count,
         derived_count,
+        cache_count,
     )
 
     if not verifiable or not courtlistener_token:

@@ -2041,9 +2041,7 @@ def test_verify_citations_ambiguous_propagates_candidate_metadata() -> None:
 
     # Bare reporter cite — no party-name tokens to differentiate the two candidates
     citations = [
-        CitationResult(
-            raw_text="978 F.3d 481 (6th Cir. 2020).", citation_type="FullCaseCitation"
-        )
+        CitationResult(raw_text="978 F.3d 481 (6th Cir. 2020).", citation_type="FullCaseCitation")
     ]
 
     result = verify_citations(
@@ -2950,3 +2948,176 @@ def test_user_can_override_heuristic_resolution() -> None:
     assert updated.selected_cluster_id == 20
     assert updated.resolution_method == "user"  # overridden by user
     assert updated.verification_status == "VERIFIED"
+
+
+# ── Disambiguation Phase C — Cache-first resolution tests ───────────────────
+
+
+def test_cache_hit_skips_courtlistener_and_gets_verified() -> None:
+    """A citation matching a cache entry should be VERIFIED without calling the verifier."""
+
+    class TrackingVerifier:
+        def __init__(self) -> None:
+            self.called_with: list[str] = []
+
+        def verify(self, citation: CitationResult) -> VerificationResponse:
+            self.called_with.append(citation.raw_text)
+            return VerificationResponse(status="VERIFIED", detail="Matched.")
+
+    tracker = TrackingVerifier()
+    citations = [
+        CitationResult(
+            raw_text="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+            citation_type="FullCaseCitation",
+            normalized_text="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+        )
+    ]
+    resolution_cache = {
+        "Brown v. Board of Educ., 347 U.S. 483 (1954).": {
+            "cluster_id": 42,
+            "case_name": "Brown v. Board of Education",
+            "court": "scotus",
+            "date_filed": "1954-05-17",
+            "resolution_method": "heuristic",
+        }
+    }
+
+    result = verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=tracker,
+        resolution_cache=resolution_cache,
+    )
+
+    assert result[0].verification_status == "VERIFIED"
+    assert result[0].resolution_method == "cache"
+    assert result[0].selected_cluster_id == 42
+    assert len(tracker.called_with) == 0  # verifier was never called
+
+
+def test_cache_miss_goes_to_courtlistener() -> None:
+    """A citation NOT in the cache should still be sent to the verifier."""
+
+    class TrackingVerifier:
+        def __init__(self) -> None:
+            self.called_with: list[str] = []
+
+        def verify(self, citation: CitationResult) -> VerificationResponse:
+            self.called_with.append(citation.raw_text)
+            return VerificationResponse(status="NOT_FOUND", detail="No match.")
+
+    tracker = TrackingVerifier()
+    citations = [
+        CitationResult(
+            raw_text="Roe v. Wade, 410 U.S. 113 (1973).",
+            citation_type="FullCaseCitation",
+            normalized_text="Roe v. Wade, 410 U.S. 113 (1973).",
+        )
+    ]
+    resolution_cache = {
+        "Brown v. Board of Educ., 347 U.S. 483 (1954).": {
+            "cluster_id": 42,
+            "case_name": "Brown v. Board",
+            "court": "scotus",
+            "date_filed": "1954-05-17",
+            "resolution_method": "heuristic",
+        }
+    }
+
+    result = verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=tracker,
+        resolution_cache=resolution_cache,
+    )
+
+    assert result[0].verification_status == "NOT_FOUND"
+    assert len(tracker.called_with) == 1
+    assert "Roe v. Wade" in tracker.called_with[0]
+
+
+def test_clear_cache_endpoint_empties_cache() -> None:
+    """POST /settings/clear-cache should remove all cache entries."""
+    from aaa_db.models import CitationResolutionCache
+    from aaa_db.repository import _upsert_resolution_cache
+
+    with SessionLocal() as db:
+        _upsert_resolution_cache(
+            db,
+            normalized_cite="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+            selected_cluster_id=42,
+            candidate_metadata=None,
+            resolution_method="heuristic",
+        )
+        db.commit()
+
+    with SessionLocal() as db:
+        count_before = db.query(CitationResolutionCache).count()
+    assert count_before >= 1
+
+    response = client.post("/settings/clear-cache")
+
+    assert response.status_code == 200
+    assert "Resolution cache cleared" in response.text
+
+    with SessionLocal() as db:
+        count_after = db.query(CitationResolutionCache).count()
+    assert count_after == 0
+
+
+def test_clear_cache_shows_entry_count_in_confirmation() -> None:
+    """The clear-cache confirmation message should include the number of entries removed."""
+    from aaa_db.repository import _upsert_resolution_cache
+
+    with SessionLocal() as db:
+        _upsert_resolution_cache(
+            db,
+            normalized_cite="Test v. Case, 100 U.S. 200 (2000).",
+            selected_cluster_id=99,
+            candidate_metadata=None,
+            resolution_method="user",
+        )
+        db.commit()
+
+    response = client.post("/settings/clear-cache")
+
+    assert response.status_code == 200
+    assert "1" in response.text
+
+
+def test_history_detail_shows_cache_resolution_label() -> None:
+    """History detail should show 'Resolved from cache' for cache-resolved citations."""
+    with SessionLocal() as db:
+        run = AuditRun(
+            source_type="text",
+            citation_count=1,
+            verified_count=1,
+            not_found_count=0,
+            ambiguous_count=0,
+            derived_count=0,
+            statute_count=0,
+            error_count=0,
+            unverified_no_token_count=0,
+        )
+        db.add(run)
+        db.flush()
+        citation_row = CitationResultRecord(
+            audit_run_id=run.id,
+            raw_text="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+            citation_type="FullCaseCitation",
+            verification_status="VERIFIED",
+            verification_detail="Resolved from cache (cluster 42). Brown v. Board.",
+            resolution_method="cache",
+            selected_cluster_id=42,
+        )
+        db.add(citation_row)
+        db.commit()
+        run_id = run.id
+
+    response = client.get(f"/history/{run_id}")
+
+    assert response.status_code == 200
+    assert "Resolved from cache" in response.text
+    assert "42" in response.text

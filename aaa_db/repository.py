@@ -1,6 +1,7 @@
 import json
 import logging
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -155,6 +156,34 @@ def _upsert_resolution_cache(
                 resolution_method=resolution_method,
             )
         )
+
+
+def lookup_resolution_cache(db: Session) -> dict[str, Any]:
+    """Return all cache entries as a dict keyed by normalized_cite.
+
+    Each value is a plain dict with keys: cluster_id, case_name, court,
+    date_filed, resolution_method.
+    """
+    rows = db.scalars(select(CitationResolutionCache)).all()
+    return {
+        row.normalized_cite: {
+            "cluster_id": row.selected_cluster_id,
+            "case_name": row.case_name,
+            "court": row.court,
+            "date_filed": row.date_filed,
+            "resolution_method": row.resolution_method,
+        }
+        for row in rows
+    }
+
+
+def clear_resolution_cache(db: Session) -> int:
+    """Delete all entries from CitationResolutionCache. Returns the count removed."""
+    count = db.query(CitationResolutionCache).count()
+    db.query(CitationResolutionCache).delete()
+    db.commit()
+    logger.info("Resolution cache cleared: %d entries removed", count)
+    return count
 
 
 def list_audit_runs(db: Session) -> list[AuditRun]:
