@@ -20,6 +20,7 @@ from app.services.audit import (
 )
 from app.services.verification import (
     VerificationResponse,
+    _split_into_batches,
     map_courtlistener_result,
     verify_citations,
 )
@@ -1046,3 +1047,368 @@ def test_ai_memo_addition_does_not_change_deterministic_verification_statuses(mo
 
     assert response.status_code == 200
     assert "VERIFIED" in response.text
+
+
+# ── Batch verification tests ───────────────────────────────────────
+
+
+class StubBatchVerifier:
+    """Verifier that supports both single and batch modes and tracks calls."""
+
+    def __init__(
+        self,
+        single_status: str = "VERIFIED",
+        batch_status: str = "VERIFIED",
+    ):
+        self.single_calls: list[str] = []
+        self.batch_calls: list[list[str]] = []
+        self.single_status = single_status
+        self.batch_status = batch_status
+
+    def verify(self, citation: CitationResult) -> VerificationResponse:
+        self.single_calls.append(citation.raw_text)
+        return VerificationResponse(
+            status=self.single_status, detail=f"Single: {citation.raw_text}"
+        )
+
+    def verify_batch(self, citations: list[CitationResult]) -> list[VerificationResponse]:
+        self.batch_calls.append([c.raw_text for c in citations])
+        return [
+            VerificationResponse(status=self.batch_status, detail=f"Batch: {c.raw_text}")
+            for c in citations
+        ]
+
+
+class StubMixedBatchVerifier:
+    """Returns different statuses for each citation in a batch."""
+
+    def __init__(self, statuses: list[str]):
+        self.statuses = statuses
+        self.batch_calls: list[list[str]] = []
+
+    def verify(self, citation: CitationResult) -> VerificationResponse:
+        return VerificationResponse(status="VERIFIED", detail="fallback")
+
+    def verify_batch(self, citations: list[CitationResult]) -> list[VerificationResponse]:
+        self.batch_calls.append([c.raw_text for c in citations])
+        return [
+            VerificationResponse(
+                status=self.statuses[i % len(self.statuses)],
+                detail=f"Mixed: {c.raw_text}",
+            )
+            for i, c in enumerate(citations)
+        ]
+
+
+class StubFailingBatchVerifier:
+    """verify_batch always raises; verify works fine (tests fallback)."""
+
+    def __init__(self):
+        self.single_calls: list[str] = []
+        self.batch_calls: int = 0
+
+    def verify(self, citation: CitationResult) -> VerificationResponse:
+        self.single_calls.append(citation.raw_text)
+        return VerificationResponse(status="VERIFIED", detail=f"Fallback: {citation.raw_text}")
+
+    def verify_batch(self, citations: list[CitationResult]) -> list[VerificationResponse]:
+        self.batch_calls += 1
+        raise RuntimeError("batch endpoint down")
+
+
+def test_batch_mode_makes_fewer_api_calls_than_citations() -> None:
+    """With 5 case-law citations, batch mode should make 1 batch call, not 5 single calls."""
+    tracker = StubBatchVerifier()
+    citations = [
+        CitationResult(
+            raw_text=f"Case v. State{i}, {100 + i} U.S. {200 + i} (2000).",
+            citation_type="FullCaseCitation",
+        )
+        for i in range(5)
+    ]
+
+    verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=tracker,
+        batch_verification=True,
+    )
+
+    assert len(tracker.batch_calls) == 1
+    assert len(tracker.batch_calls[0]) == 5
+    assert len(tracker.single_calls) == 0
+    for c in citations:
+        assert c.verification_status == "VERIFIED"
+
+
+def test_batch_mode_skips_statute_and_derived_before_batching() -> None:
+    """Statute and derived citations are handled before batch; only case law is batched."""
+    tracker = StubBatchVerifier()
+    citations = [
+        CitationResult(
+            raw_text="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+            citation_type="FullCaseCitation",
+        ),
+        CitationResult(raw_text="42 U.S.C. § 1983", citation_type="FullLawCitation"),
+        CitationResult(
+            raw_text="Id. at 486",
+            citation_type="IdCitation",
+            resolved_from="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+        ),
+        CitationResult(
+            raw_text="Roe v. Wade, 410 U.S. 113 (1973).",
+            citation_type="FullCaseCitation",
+        ),
+    ]
+
+    verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=tracker,
+        batch_verification=True,
+    )
+
+    # Only the 2 case-law citations should be batched
+    assert len(tracker.batch_calls) == 1
+    assert len(tracker.batch_calls[0]) == 2
+    assert "Brown v. Board" in tracker.batch_calls[0][0]
+    assert "Roe v. Wade" in tracker.batch_calls[0][1]
+
+    # Statute and derived should be labelled independently
+    assert citations[1].verification_status == "STATUTE_DETECTED"
+    assert citations[2].verification_status == "DERIVED"
+
+
+def test_batch_splitting_respects_text_size_limit() -> None:
+    """Citations exceeding the text-byte limit are split across batches."""
+    # Each citation raw_text is ~50 bytes; with max_text_bytes=120, expect 2 per batch
+    citations = [
+        CitationResult(
+            raw_text=f"{'X' * 40} v. State, {100 + i} U.S. {200 + i} (2000).",
+            citation_type="FullCaseCitation",
+        )
+        for i in range(5)
+    ]
+
+    batches = _split_into_batches(citations, max_count=250, max_text_bytes=120)
+
+    assert len(batches) >= 2
+    total = sum(len(b) for b in batches)
+    assert total == 5
+
+
+def test_batch_splitting_respects_count_limit() -> None:
+    """No batch should have more than max_count citations."""
+    citations = [
+        CitationResult(raw_text=f"Case{i}", citation_type="FullCaseCitation") for i in range(10)
+    ]
+
+    batches = _split_into_batches(citations, max_count=3, max_text_bytes=999_999)
+
+    assert len(batches) == 4  # 3 + 3 + 3 + 1
+    assert all(len(b) <= 3 for b in batches)
+    total = sum(len(b) for b in batches)
+    assert total == 10
+
+
+def test_batch_splitting_single_oversized_citation() -> None:
+    """A single citation exceeding the byte limit still gets its own batch."""
+    huge = CitationResult(
+        raw_text="A" * 70_000,
+        citation_type="FullCaseCitation",
+    )
+    small = CitationResult(raw_text="Short", citation_type="FullCaseCitation")
+
+    batches = _split_into_batches([huge, small], max_count=250, max_text_bytes=60_000)
+
+    # The huge one can't share a batch with anything
+    assert len(batches) == 2
+    assert batches[0] == [huge]
+    assert batches[1] == [small]
+
+
+def test_batch_mixed_results_map_back_correctly() -> None:
+    """Each citation in a batch receives its own distinct status."""
+    tracker = StubMixedBatchVerifier(statuses=["VERIFIED", "NOT_FOUND", "AMBIGUOUS"])
+    citations = [
+        CitationResult(
+            raw_text=f"Case{i} v. State, {100 + i} U.S. {200 + i} (2000).",
+            citation_type="FullCaseCitation",
+        )
+        for i in range(3)
+    ]
+
+    verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=tracker,
+        batch_verification=True,
+    )
+
+    assert citations[0].verification_status == "VERIFIED"
+    assert citations[1].verification_status == "NOT_FOUND"
+    assert citations[2].verification_status == "AMBIGUOUS"
+
+
+def test_batch_fallback_to_single_on_batch_failure() -> None:
+    """When verify_batch raises, each citation is retried individually."""
+    tracker = StubFailingBatchVerifier()
+    citations = [
+        CitationResult(
+            raw_text=f"Case{i} v. State, {100 + i} U.S. {200 + i} (2000).",
+            citation_type="FullCaseCitation",
+        )
+        for i in range(3)
+    ]
+
+    verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=tracker,
+        batch_verification=True,
+    )
+
+    # batch was attempted once and failed
+    assert tracker.batch_calls == 1
+    # fell back to 3 individual calls
+    assert len(tracker.single_calls) == 3
+    for c in citations:
+        assert c.verification_status == "VERIFIED"
+        assert "Fallback" in (c.verification_detail or "")
+
+
+def test_batch_verification_disabled_uses_single_mode() -> None:
+    """When batch_verification=False, each citation gets its own verify() call."""
+    tracker = StubBatchVerifier()
+    citations = [
+        CitationResult(
+            raw_text=f"Case{i} v. State, {100 + i} U.S. {200 + i} (2000).",
+            citation_type="FullCaseCitation",
+        )
+        for i in range(4)
+    ]
+
+    verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=tracker,
+        batch_verification=False,
+    )
+
+    assert len(tracker.batch_calls) == 0
+    assert len(tracker.single_calls) == 4
+    for c in citations:
+        assert c.verification_status == "VERIFIED"
+
+
+def test_batch_verifier_without_batch_method_falls_back_to_single() -> None:
+    """A verifier without verify_batch uses single mode even when batch_verification=True."""
+    tracker = StubVerifiedVerifier()
+    citations = [
+        CitationResult(
+            raw_text="Case v. State, 100 U.S. 200 (2000).",
+            citation_type="FullCaseCitation",
+        ),
+        CitationResult(
+            raw_text="Case v. State, 101 U.S. 201 (2001).",
+            citation_type="FullCaseCitation",
+        ),
+    ]
+
+    verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=tracker,
+        batch_verification=True,
+    )
+
+    # StubVerifiedVerifier has no verify_batch, so single mode is used
+    for c in citations:
+        assert c.verification_status == "VERIFIED"
+
+
+def test_batch_with_multiple_batches_all_verified() -> None:
+    """When citations are split across multiple batches, all get verified."""
+    tracker = StubBatchVerifier()
+    citations = [
+        CitationResult(
+            raw_text=f"Case{i} v. State, {100 + i} U.S. {200 + i} (2000).",
+            citation_type="FullCaseCitation",
+        )
+        for i in range(7)
+    ]
+
+    # Force 3 per batch
+    verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=tracker,
+        batch_verification=True,
+    )
+
+    # Default batch limits won't split 7 small citations, so 1 batch call
+    assert len(tracker.batch_calls) == 1
+    assert len(tracker.batch_calls[0]) == 7
+    for c in citations:
+        assert c.verification_status == "VERIFIED"
+
+
+def test_empty_citation_list_returns_immediately() -> None:
+    """No calls should be made when the citation list is empty."""
+    tracker = StubBatchVerifier()
+
+    result = verify_citations(
+        [],
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=tracker,
+        batch_verification=True,
+    )
+
+    assert result == []
+    assert len(tracker.batch_calls) == 0
+    assert len(tracker.single_calls) == 0
+
+
+def test_all_statutes_and_derived_skips_verification_entirely() -> None:
+    """If every citation is a statute or derived, no verifier calls are made."""
+    tracker = StubBatchVerifier()
+    citations = [
+        CitationResult(raw_text="42 U.S.C. § 1983", citation_type="FullLawCitation"),
+        CitationResult(
+            raw_text="Id. at 50",
+            citation_type="IdCitation",
+            resolved_from="42 U.S.C. § 1983",
+        ),
+    ]
+
+    verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=tracker,
+        batch_verification=True,
+    )
+
+    assert len(tracker.batch_calls) == 0
+    assert len(tracker.single_calls) == 0
+    assert citations[0].verification_status == "STATUTE_DETECTED"
+    assert citations[1].verification_status == "DERIVED"
+
+
+def test_batch_verification_setting_default_is_true() -> None:
+    """The batch_verification setting should default to True."""
+    from app.settings import Settings
+
+    s = Settings(
+        courtlistener_token="test-token",
+        _env_file=None,
+    )
+    assert s.batch_verification is True

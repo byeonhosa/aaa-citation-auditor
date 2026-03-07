@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     courtlistener_token: str | None = None
     verification_base_url: str = "https://www.courtlistener.com/api/rest/v4/citation-lookup/"
     verification_timeout_seconds: int = 8
+    batch_verification: bool = True
 
     ai_memo_enabled: bool = False
     ai_memo_include_content: bool = False

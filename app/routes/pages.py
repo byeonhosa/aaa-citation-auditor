@@ -207,6 +207,7 @@ async def run_audit(
             courtlistener_token=settings.courtlistener_token,
             verification_base_url=settings.verification_base_url,
             verification_timeout_seconds=settings.verification_timeout_seconds,
+            batch_verification=settings.batch_verification,
         )
 
         group_warnings = [*source.warnings, *parsing_warnings]

@@ -20,6 +20,9 @@ class CitationVerifier(Protocol):
 
 STATUTE_CITATION_TYPES = frozenset({"FullLawCitation"})
 
+BATCH_MAX_CITATIONS = 250
+BATCH_MAX_TEXT_BYTES = 60_000  # leave margin from 64K API limit
+
 
 def is_statute_citation(citation: CitationResult) -> bool:
     return citation.citation_type in STATUTE_CITATION_TYPES
@@ -29,6 +32,43 @@ def is_derived_citation(citation: CitationResult) -> bool:
     return citation.raw_text.lower().startswith("id.") or citation.citation_type.lower().startswith(
         "id"
     )
+
+
+def _lookup_text_for(citation: CitationResult) -> str:
+    """Return the text to send to CourtListener for a single citation."""
+    return citation.normalized_text or citation.raw_text or ""
+
+
+def _split_into_batches(
+    citations: list[CitationResult],
+    max_count: int = BATCH_MAX_CITATIONS,
+    max_text_bytes: int = BATCH_MAX_TEXT_BYTES,
+) -> list[list[CitationResult]]:
+    """Split citations into batches respecting count and text-size limits."""
+    batches: list[list[CitationResult]] = []
+    current_batch: list[CitationResult] = []
+    current_size = 0
+    separator_size = 1  # len("\n".encode("utf-8"))
+
+    for citation in citations:
+        text_size = len(_lookup_text_for(citation).encode("utf-8"))
+        added_size = text_size + (separator_size if current_batch else 0)
+
+        if current_batch and (
+            len(current_batch) >= max_count or current_size + added_size > max_text_bytes
+        ):
+            batches.append(current_batch)
+            current_batch = []
+            current_size = 0
+            added_size = text_size  # no separator for first item in new batch
+
+        current_batch.append(citation)
+        current_size += added_size
+
+    if current_batch:
+        batches.append(current_batch)
+
+    return batches
 
 
 def map_courtlistener_result(result: dict[str, Any]) -> VerificationResponse:
@@ -89,7 +129,7 @@ class CourtListenerVerifier:
         self.timeout_seconds = timeout_seconds
 
     def verify(self, citation: CitationResult) -> VerificationResponse:
-        lookup_text = citation.normalized_text or citation.raw_text
+        lookup_text = _lookup_text_for(citation)
         if not lookup_text:
             return VerificationResponse(status="NOT_FOUND", detail="Citation text unavailable.")
 
@@ -147,6 +187,121 @@ class CourtListenerVerifier:
 
         return map_courtlistener_result(first_result)
 
+    def verify_batch(self, citations: list[CitationResult]) -> list[VerificationResponse]:
+        """Verify multiple citations in a single API call.
+
+        Concatenates citation lookup texts separated by newlines and sends one
+        POST request.  Results are mapped back to citations by position.
+        """
+        if not citations:
+            return []
+
+        lookup_texts = [_lookup_text_for(c) for c in citations]
+        combined_text = "\n".join(lookup_texts)
+        form_data = parse.urlencode({"text": combined_text}).encode("utf-8")
+        req = request.Request(
+            self.base_url,
+            data=form_data,
+            method="POST",
+            headers={
+                "Authorization": f"Token {self.token}",
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+
+        try:
+            with request.urlopen(req, timeout=self.timeout_seconds) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except error.HTTPError as exc:
+            detail = (
+                "CourtListener rate limit reached; please retry later."
+                if exc.code == 429
+                else f"Batch verification HTTP error: {exc.code}."
+            )
+            return [VerificationResponse(status="ERROR", detail=detail)] * len(citations)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return [
+                VerificationResponse(
+                    status="ERROR", detail="Could not parse batch verification response."
+                )
+            ] * len(citations)
+        except Exception:
+            return [
+                VerificationResponse(status="ERROR", detail="Batch verification request failed.")
+            ] * len(citations)
+
+        if not isinstance(payload, list):
+            return [
+                VerificationResponse(status="ERROR", detail="Unexpected batch response shape.")
+            ] * len(citations)
+
+        # Map results by position (index-aligned with input)
+        results: list[VerificationResponse] = []
+        for i in range(len(citations)):
+            if i < len(payload):
+                item = payload[i]
+                if isinstance(item, dict):
+                    results.append(map_courtlistener_result(item))
+                else:
+                    results.append(
+                        VerificationResponse(status="ERROR", detail="Unexpected batch result item.")
+                    )
+            else:
+                results.append(
+                    VerificationResponse(
+                        status="NOT_FOUND",
+                        detail="Citation not included in batch response.",
+                    )
+                )
+
+        return results
+
+
+def _verify_single(
+    verifiable: list[CitationResult],
+    verifier: CitationVerifier,
+) -> None:
+    """Verify each citation individually (one HTTP call per citation)."""
+    for citation in verifiable:
+        try:
+            result = verifier.verify(citation)
+        except Exception:
+            citation.verification_status = "ERROR"
+            citation.verification_detail = "Verification service raised an error."
+            continue
+
+        citation.verification_status = result.status
+        citation.verification_detail = result.detail
+
+
+def _verify_batched(
+    verifiable: list[CitationResult],
+    verifier: Any,
+) -> None:
+    """Verify citations in batches.  Falls back to single mode per-batch on failure."""
+    batches = _split_into_batches(verifiable)
+
+    for batch in batches:
+        try:
+            results = verifier.verify_batch(batch)
+        except Exception:
+            # Batch call itself raised — fall back to single mode for this batch
+            for citation in batch:
+                try:
+                    result = verifier.verify(citation)
+                except Exception:
+                    citation.verification_status = "ERROR"
+                    citation.verification_detail = "Verification service raised an error."
+                    continue
+                citation.verification_status = result.status
+                citation.verification_detail = result.detail
+            continue
+
+        for citation, result in zip(batch, results, strict=False):
+            citation.verification_status = result.status
+            citation.verification_detail = result.detail
+
 
 def verify_citations(
     citations: list[CitationResult],
@@ -155,14 +310,10 @@ def verify_citations(
     verification_base_url: str,
     verifier: CitationVerifier | None = None,
     verification_timeout_seconds: int = 8,
+    batch_verification: bool = True,
 ) -> list[CitationResult]:
-    active_verifier = None
-    if courtlistener_token:
-        active_verifier = verifier or CourtListenerVerifier(
-            token=courtlistener_token,
-            base_url=verification_base_url,
-            timeout_seconds=verification_timeout_seconds,
-        )
+    # ── First pass: handle STATUTE, DERIVED, and NO_TOKEN ──
+    verifiable: list[CitationResult] = []
 
     for citation in citations:
         if is_statute_citation(citation):
@@ -180,20 +331,30 @@ def verify_citations(
             )
             continue
 
-        if not courtlistener_token or active_verifier is None:
+        if not courtlistener_token:
             citation.verification_status = "UNVERIFIED_NO_TOKEN"
             citation.verification_detail = "No CourtListener token configured."
             continue
 
-        try:
-            result = active_verifier.verify(citation)
-        except Exception:
-            citation.verification_status = "ERROR"
-            citation.verification_detail = "Verification service raised an error."
-            continue
+        verifiable.append(citation)
 
-        citation.verification_status = result.status
-        citation.verification_detail = result.detail
+    if not verifiable or not courtlistener_token:
+        return citations
+
+    # ── Build verifier ──
+    active_verifier = verifier or CourtListenerVerifier(
+        token=courtlistener_token,
+        base_url=verification_base_url,
+        timeout_seconds=verification_timeout_seconds,
+    )
+
+    # ── Second pass: verify case-law citations ──
+    use_batch = batch_verification and hasattr(active_verifier, "verify_batch")
+
+    if use_batch:
+        _verify_batched(verifiable, active_verifier)
+    else:
+        _verify_single(verifiable, active_verifier)
 
     return citations
 
