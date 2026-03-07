@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -85,6 +86,7 @@ def generate_risk_memo(
     if not api_key:
         return unavailable_memo("OpenAI API key is not configured.")
 
+    logger.info("Generating AI risk memo using model: %s", model)
     prompt = _build_prompt(run_data)
     payload = {
         "model": model,
@@ -102,6 +104,7 @@ def generate_risk_memo(
         "temperature": 0.1,
     }
 
+    t0 = time.perf_counter()
     try:
         response = post_with_retry(
             "https://api.openai.com/v1/chat/completions",
@@ -126,6 +129,10 @@ def generate_risk_memo(
         body = response.json()
         content = body["choices"][0]["message"]["content"]
         parsed = json.loads(content)
-        return _normalize_payload(parsed)
+        memo = _normalize_payload(parsed)
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        logger.info("AI risk memo generated in %dms (risk_level=%s)", elapsed_ms, memo.risk_level)
+        return memo
     except Exception:
+        logger.exception("Failed to parse AI risk memo response.")
         return unavailable_memo("AI memo generation failed.")

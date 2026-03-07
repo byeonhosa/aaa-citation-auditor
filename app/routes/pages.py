@@ -1,3 +1,4 @@
+import logging
 from contextlib import contextmanager
 from time import perf_counter
 from typing import Any
@@ -28,6 +29,8 @@ from app.settings import TEMPLATES_DIR, settings
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+logger = logging.getLogger(__name__)
+
 PASTED_TEXT_FORM = Form(default="")
 UPLOADED_FILES_FORM = File(default=None)
 
@@ -52,7 +55,7 @@ def _record_event_safely(**kwargs) -> None:  # noqa: ANN003
                 **kwargs,
             )
     except Exception:
-        pass
+        logger.exception("Failed to record telemetry event.")
 
 
 def citation_to_context(citation: Any) -> dict[str, str | None]:
@@ -189,6 +192,16 @@ async def run_audit(
     shared_warnings: list[str] = []
     result_groups: list[dict[str, Any]] = []
 
+    valid_file_count = sum(1 for f in (uploaded_files or []) if f and f.filename)
+    text_len = len((pasted_text or "").strip())
+    source_desc = "text" if text_len else f"{valid_file_count} file(s)"
+    logger.info(
+        "Audit request received: source=%s, text_len=%d, files=%d",
+        source_desc,
+        text_len,
+        valid_file_count,
+    )
+
     sources, collection_warnings, validation_message = await collect_sources(
         pasted_text,
         uploaded_files,
@@ -198,6 +211,7 @@ async def run_audit(
     shared_warnings.extend(collection_warnings)
 
     if validation_message:
+        logger.warning("Audit request rejected by guardrail: %s", validation_message)
         return render_dashboard(
             request,
             pasted_text=pasted_text,
@@ -207,6 +221,12 @@ async def run_audit(
 
     for source in sources:
         started = perf_counter()
+        logger.info(
+            "Processing source: type=%s, name=%r, text_len=%d",
+            source.source_type,
+            source.source_name,
+            len(source.text),
+        )
 
         citation_results, parsing_warnings = extract_citations(source.text)
         citation_results, cap_warning = apply_citation_cap(
@@ -223,6 +243,7 @@ async def run_audit(
 
         group_warnings = [*source.warnings, *parsing_warnings]
         if cap_warning:
+            logger.warning("Citation cap triggered for %r: %s", source.source_name, cap_warning)
             group_warnings.insert(0, cap_warning)
         verification_summary = summarize_verification_statuses(citation_results)
 
@@ -237,6 +258,12 @@ async def run_audit(
             )
 
         latency_ms = int((perf_counter() - started) * 1000)
+        logger.info(
+            "Audit complete: source=%r, citations=%d, latency_ms=%d",
+            source.source_name,
+            len(citation_results),
+            latency_ms,
+        )
         _record_event_safely(
             event_type="audit_completed",
             source_type=source.source_type,
