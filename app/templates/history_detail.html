@@ -73,10 +73,27 @@
       <p><strong>Verification:</strong> {{ citation.verification_status or "UNKNOWN" }}</p>
       <p><strong>Verification detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
       <p><strong>Snippet:</strong> {{ citation.snippet or "(snippet unavailable)" }}</p>
-      {% if citation.resolution_method %}
+      {% if citation.resolution_method == "heuristic" and citation.candidate_metadata %}
+      <p><strong>Resolution:</strong> Resolved automatically (heuristic match) — cluster {{ citation.selected_cluster_id }}</p>
+      <details>
+        <summary>Change selection</summary>
+        <ul class="candidate-list">
+          {% for candidate in citation.candidate_metadata %}
+          <li>
+            <form method="post" action="/history/{{ run.id }}/citations/{{ citation.id }}/resolve">
+              <input type="hidden" name="cluster_id" value="{{ candidate.cluster_id }}">
+              <strong>{{ candidate.case_name or "(unknown case)" }}</strong>
+              {% if candidate.court %}<span> — {{ candidate.court }}</span>{% endif %}
+              {% if candidate.date_filed %}<span> ({{ candidate.date_filed }})</span>{% endif %}
+              <button type="submit">Select</button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% elif citation.resolution_method %}
       <p><strong>Resolution:</strong> Resolved by {{ citation.resolution_method }} (cluster {{ citation.selected_cluster_id }})</p>
-      {% endif %}
-      {% if citation.verification_status == "AMBIGUOUS" and citation.candidate_metadata and not citation.resolution_method %}
+      {% elif citation.verification_status == "AMBIGUOUS" and citation.candidate_metadata %}
       <details>
         <summary>Select a matching case to resolve this citation</summary>
         <ul class="candidate-list">
