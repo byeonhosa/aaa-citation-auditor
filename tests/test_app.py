@@ -429,6 +429,172 @@ def test_history_detail_shows_derived_count() -> None:
     assert "DERIVED" in response.text
 
 
+def test_statute_citation_gets_statute_detected_status() -> None:
+    citations = [
+        CitationResult(raw_text="42 U.S.C. § 1983", citation_type="FullLawCitation"),
+    ]
+
+    verified = verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=StubVerifiedVerifier(),
+    )
+
+    assert verified[0].verification_status == "STATUTE_DETECTED"
+    assert "Statute citation detected" in (verified[0].verification_detail or "")
+
+
+def test_statute_not_sent_to_courtlistener() -> None:
+    """Statutes should be skipped entirely; the verifier should never be called."""
+
+    class TrackingVerifier:
+        def __init__(self):
+            self.called_with: list[str] = []
+
+        def verify(self, citation: CitationResult) -> VerificationResponse:
+            self.called_with.append(citation.raw_text)
+            return VerificationResponse(status="VERIFIED", detail="Matched.")
+
+    tracker = TrackingVerifier()
+    citations = [
+        CitationResult(raw_text="42 U.S.C. § 1983", citation_type="FullLawCitation"),
+        CitationResult(
+            raw_text="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+            citation_type="FullCaseCitation",
+        ),
+    ]
+
+    verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=tracker,
+    )
+
+    # Only the case citation should have been sent to the verifier
+    assert len(tracker.called_with) == 1
+    assert "Brown v. Board" in tracker.called_with[0]
+
+
+def test_summary_counts_include_statute_detected() -> None:
+    from app.services.verification import summarize_verification_statuses
+
+    citations = [
+        CitationResult(
+            raw_text="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+            citation_type="FullCaseCitation",
+            verification_status="VERIFIED",
+        ),
+        CitationResult(
+            raw_text="42 U.S.C. § 1983",
+            citation_type="FullLawCitation",
+            verification_status="STATUTE_DETECTED",
+        ),
+        CitationResult(
+            raw_text="28 U.S.C. § 1331",
+            citation_type="FullLawCitation",
+            verification_status="STATUTE_DETECTED",
+        ),
+    ]
+
+    summary = summarize_verification_statuses(citations)
+
+    assert summary["STATUTE_DETECTED"] == 2
+    assert summary["VERIFIED"] == 1
+
+
+def test_repository_stores_statute_count() -> None:
+    from aaa_db.repository import save_audit_run
+
+    citations = [
+        CitationResult(
+            raw_text="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+            citation_type="FullCaseCitation",
+            verification_status="VERIFIED",
+            verification_detail="Matched.",
+        ),
+        CitationResult(
+            raw_text="42 U.S.C. § 1983",
+            citation_type="FullLawCitation",
+            verification_status="STATUTE_DETECTED",
+            verification_detail="Statute citation detected.",
+        ),
+        CitationResult(
+            raw_text="28 U.S.C. § 1331",
+            citation_type="FullLawCitation",
+            verification_status="STATUTE_DETECTED",
+            verification_detail="Statute citation detected.",
+        ),
+    ]
+
+    with SessionLocal() as db:
+        run = save_audit_run(
+            db,
+            source_type="text",
+            source_name=None,
+            input_text="Test text",
+            warnings=[],
+            citations=citations,
+        )
+
+    assert run.citation_count == 3
+    assert run.verified_count == 1
+    assert run.statute_count == 2
+
+
+def test_markdown_export_includes_statute_count() -> None:
+    client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954). See 42 U.S.C. § 1983."},
+    )
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response = client.get(f"/history/{run.id}/export?format=markdown")
+
+    assert response.status_code == 200
+    assert "STATUTE_DETECTED=" in response.text
+
+
+def test_history_page_shows_statute_count() -> None:
+    client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954). See 42 U.S.C. § 1983."},
+    )
+
+    response = client.get("/history")
+
+    assert response.status_code == 200
+    assert "STATUTE_DETECTED" in response.text
+
+
+def test_history_detail_shows_statute_count() -> None:
+    client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954). See 42 U.S.C. § 1983."},
+    )
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response = client.get(f"/history/{run.id}")
+
+    assert response.status_code == 200
+    assert "STATUTE_DETECTED" in response.text
+
+
+def test_dashboard_filter_includes_statute_detected_option() -> None:
+    response = client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954). See 42 U.S.C. § 1983."},
+    )
+
+    assert response.status_code == 200
+    assert "STATUTE_DETECTED" in response.text
+
+
 def test_snippet_context_extraction_is_useful() -> None:
     text_value = (
         "Leading text. Brown v. Board of Educ., 347 U.S. 483 (1954). trailing words for context."
