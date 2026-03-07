@@ -9,6 +9,7 @@ from typing import Any, Protocol
 import httpx
 
 from app.services.audit import CitationResult
+from app.services.disambiguation import try_heuristic_resolution
 from app.services.http_client import post_with_retry
 
 logger = logging.getLogger(__name__)
@@ -472,6 +473,35 @@ def verify_citations(
         _verify_batched(verifiable, active_verifier)
     else:
         _verify_single(verifiable, active_verifier)
+
+    # ── Third pass: heuristic auto-disambiguation of AMBIGUOUS citations ──
+    heuristic_resolved = 0
+    for citation in verifiable:
+        if citation.verification_status == "AMBIGUOUS" and citation.candidate_metadata:
+            winner = try_heuristic_resolution(
+                citation.raw_text,
+                citation.snippet,
+                citation.candidate_metadata,
+            )
+            if winner is not None:
+                citation.verification_status = "VERIFIED"
+                citation.selected_cluster_id = winner["cluster_id"]
+                citation.resolution_method = "heuristic"
+                case_name = winner.get("case_name") or ""
+                detail = f"Auto-resolved by heuristic (cluster {winner['cluster_id']})"
+                if case_name:
+                    detail += f". {case_name}"
+                citation.verification_detail = detail + "."
+                heuristic_resolved += 1
+                logger.info(
+                    "Heuristic resolved: %r → cluster %d (%s)",
+                    citation.raw_text,
+                    winner["cluster_id"],
+                    case_name,
+                )
+
+    if heuristic_resolved:
+        logger.info("Heuristic auto-resolved %d citation(s)", heuristic_resolved)
 
     summary = summarize_verification_statuses(citations)
     logger.info("Verification complete: %s", summary)

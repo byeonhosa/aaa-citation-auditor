@@ -84,12 +84,26 @@ def save_audit_run(
                 candidate_metadata=json.dumps(citation.candidate_metadata)
                 if citation.candidate_metadata
                 else None,
+                selected_cluster_id=citation.selected_cluster_id,
+                resolution_method=citation.resolution_method,
             )
         )
 
     db.add(audit_run)
     db.commit()
     db.refresh(audit_run)
+
+    # Write heuristic resolutions to the resolution cache
+    for citation in citations:
+        if citation.resolution_method == "heuristic" and citation.selected_cluster_id is not None:
+            _upsert_resolution_cache(
+                db,
+                normalized_cite=citation.normalized_text or citation.raw_text,
+                selected_cluster_id=citation.selected_cluster_id,
+                candidate_metadata=citation.candidate_metadata,
+                resolution_method="heuristic",
+            )
+    db.commit()
     logger.info(
         "Audit run saved: id=%d, source_type=%s, citations=%d",
         audit_run.id,
@@ -97,6 +111,50 @@ def save_audit_run(
         len(citations),
     )
     return audit_run
+
+
+def _upsert_resolution_cache(
+    db: Session,
+    *,
+    normalized_cite: str,
+    selected_cluster_id: int,
+    candidate_metadata: list[dict] | None,
+    resolution_method: str,
+) -> None:
+    """Insert or update a CitationResolutionCache row (no commit)."""
+    selected_meta: dict = {}
+    if candidate_metadata:
+        for meta in candidate_metadata:
+            if meta.get("cluster_id") == selected_cluster_id:
+                selected_meta = meta
+                break
+
+    case_name = selected_meta.get("case_name") or None
+    court = selected_meta.get("court") or None
+    date_filed = selected_meta.get("date_filed") or None
+
+    cached = db.scalar(
+        select(CitationResolutionCache).where(
+            CitationResolutionCache.normalized_cite == normalized_cite
+        )
+    )
+    if cached:
+        cached.selected_cluster_id = selected_cluster_id
+        cached.case_name = case_name
+        cached.court = court
+        cached.date_filed = date_filed
+        cached.resolution_method = resolution_method
+    else:
+        db.add(
+            CitationResolutionCache(
+                normalized_cite=normalized_cite,
+                selected_cluster_id=selected_cluster_id,
+                case_name=case_name,
+                court=court,
+                date_filed=date_filed,
+                resolution_method=resolution_method,
+            )
+        )
 
 
 def list_audit_runs(db: Session) -> list[AuditRun]:
@@ -135,37 +193,19 @@ def resolve_citation(
                 break
 
     case_name = selected_meta.get("case_name") or ""
-    court = selected_meta.get("court") or ""
-    date_filed = selected_meta.get("date_filed") or ""
     detail_parts = [f"Resolved by user (cluster {selected_cluster_id})"]
     if case_name:
         detail_parts.append(case_name)
     citation.verification_detail = ". ".join(detail_parts) + "."
 
     # Upsert into resolution cache
-    normalized_cite = citation.normalized_text or citation.raw_text
-    cached = db.scalar(
-        select(CitationResolutionCache).where(
-            CitationResolutionCache.normalized_cite == normalized_cite
-        )
+    _upsert_resolution_cache(
+        db,
+        normalized_cite=citation.normalized_text or citation.raw_text,
+        selected_cluster_id=selected_cluster_id,
+        candidate_metadata=candidate_metadata,
+        resolution_method=resolution_method,
     )
-    if cached:
-        cached.selected_cluster_id = selected_cluster_id
-        cached.case_name = case_name or None
-        cached.court = court or None
-        cached.date_filed = date_filed or None
-        cached.resolution_method = resolution_method
-    else:
-        db.add(
-            CitationResolutionCache(
-                normalized_cite=normalized_cite,
-                selected_cluster_id=selected_cluster_id,
-                case_name=case_name or None,
-                court=court or None,
-                date_filed=date_filed or None,
-                resolution_method=resolution_method,
-            )
-        )
 
     db.commit()
     db.refresh(citation)

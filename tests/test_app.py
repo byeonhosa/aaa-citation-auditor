@@ -2015,6 +2015,8 @@ def test_map_courtlistener_result_status_300_no_clusters_returns_none_candidates
 def test_verify_citations_ambiguous_propagates_candidate_metadata() -> None:
     """AMBIGUOUS verifier response should propagate candidate fields to citation."""
 
+    # Both candidates share the same court+year — heuristic cannot differentiate,
+    # so the citation stays AMBIGUOUS and candidate fields must still be populated.
     class StubAmbiguousVerifier:
         def verify(self, citation: CitationResult) -> VerificationResponse:
             return VerificationResponse(
@@ -2024,22 +2026,23 @@ def test_verify_citations_ambiguous_propagates_candidate_metadata() -> None:
                 candidate_metadata=[
                     {
                         "cluster_id": 10,
-                        "case_name": "Case A",
-                        "court": "scotus",
-                        "date_filed": "2000-01-01",
+                        "case_name": "Alpha v. Beta",
+                        "court": "ca6",
+                        "date_filed": "2020-01-01",
                     },
                     {
                         "cluster_id": 20,
-                        "case_name": "Case B",
-                        "court": "ca9",
-                        "date_filed": "2001-01-01",
+                        "case_name": "Gamma v. Delta",
+                        "court": "ca6",
+                        "date_filed": "2020-06-01",
                     },
                 ],
             )
 
+    # Bare reporter cite — no party-name tokens to differentiate the two candidates
     citations = [
         CitationResult(
-            raw_text="Smith v. Jones, 100 U.S. 200 (2000).", citation_type="FullCaseCitation"
+            raw_text="978 F.3d 481 (6th Cir. 2020).", citation_type="FullCaseCitation"
         )
     ]
 
@@ -2480,3 +2483,470 @@ def test_resolve_citation_updates_run_summary_counts() -> None:
         updated_run = db.get(AuditRun, run_id)
     assert updated_run.ambiguous_count == 0
     assert updated_run.verified_count == 1
+
+
+# ── Disambiguation Phase B — Heuristic tests ───────────────────────────────
+
+
+def test_extract_year_from_parenthetical() -> None:
+    from app.services.disambiguation import extract_year
+
+    assert extract_year("Brown v. Board, 347 U.S. 483 (1954).") == "1954"
+    assert extract_year("Smith v. Jones, 978 F.3d 481 (6th Cir. 2020).") == "2020"
+    assert extract_year("No parenthetical here") is None
+
+
+def test_extract_court_id_circuit() -> None:
+    from app.services.disambiguation import extract_court_id
+
+    assert extract_court_id("978 F.3d 481 (6th Cir. 2020)") == "ca6"
+    assert extract_court_id("100 F.3d 200 (2d Cir. 2001)") == "ca2"
+    assert extract_court_id("500 F.3d 100 (11th Cir. 2005)") == "ca11"
+    assert extract_court_id("200 F.3d 300 (D.C. Cir. 2010)") == "cadc"
+    assert extract_court_id("300 F.3d 400 (Fed. Cir. 2015)") == "cafc"
+
+
+def test_extract_court_id_scotus() -> None:
+    from app.services.disambiguation import extract_court_id
+
+    assert extract_court_id("347 U.S. 483 (1954)") == "scotus"
+    assert extract_court_id("Brown v. Board, 531 U.S. 98 (2000)") == "scotus"
+
+
+def test_extract_court_id_unknown() -> None:
+    from app.services.disambiguation import extract_court_id
+
+    assert extract_court_id("100 F. Supp. 3d 200 (D. Del. 2015)") is None
+
+
+def test_extract_name_tokens_basic() -> None:
+    from app.services.disambiguation import extract_name_tokens
+
+    tokens = extract_name_tokens("Brown v. Board of Educ., 347 U.S. 483 (1954).")
+    assert "Brown" in tokens
+    assert "Board" in tokens
+    assert "Educ" in tokens
+
+
+def test_extract_name_tokens_multi_word_party() -> None:
+    from app.services.disambiguation import extract_name_tokens
+
+    tokens = extract_name_tokens(
+        "Am. Freedom Defense Initiative v. Suburban Mobility Auth., 978 F.3d 481 (6th Cir. 2020)."
+    )
+    assert "Freedom" in tokens
+    assert "Defense" in tokens
+    assert "Suburban" in tokens
+    assert "Mobility" in tokens
+
+
+def test_score_candidate_year_and_court_match() -> None:
+    from app.services.disambiguation import score_candidate
+
+    candidate = {
+        "cluster_id": 1,
+        "case_name": "Brown v. Board",
+        "court": "ca6",
+        "date_filed": "2020-01-15",
+    }
+    score = score_candidate(candidate, year="2020", court_id="ca6", name_tokens=["Brown", "Board"])
+    assert score == 8  # +3 year + 3 court + 1 Brown + 1 Board
+
+
+def test_score_candidate_no_match() -> None:
+    from app.services.disambiguation import score_candidate
+
+    candidate = {
+        "cluster_id": 2,
+        "case_name": "Unrelated Case",
+        "court": "ca9",
+        "date_filed": "1999-03-01",
+    }
+    score = score_candidate(candidate, year="2020", court_id="ca6", name_tokens=["Freedom"])
+    assert score == 0
+
+
+def test_score_candidate_partial_match() -> None:
+    from app.services.disambiguation import score_candidate
+
+    candidate = {
+        "cluster_id": 3,
+        "case_name": "Smith v. Jones",
+        "court": "ca6",
+        "date_filed": "2019-05-01",
+    }
+    # year miss, court hit, no name tokens match
+    score = score_candidate(candidate, year="2020", court_id="ca6", name_tokens=["Freedom"])
+    assert score == 3  # only court match
+
+
+def test_pick_winner_clear_winner() -> None:
+    from app.services.disambiguation import pick_winner
+
+    candidates = [
+        {
+            "cluster_id": 10,
+            "case_name": "Freedom Defense v. Auth",
+            "court": "ca6",
+            "date_filed": "2020-01-01",
+        },
+        {
+            "cluster_id": 20,
+            "case_name": "Unrelated v. Other",
+            "court": "ca9",
+            "date_filed": "1999-01-01",
+        },
+    ]
+    winner = pick_winner(
+        candidates,
+        year="2020",
+        court_id="ca6",
+        name_tokens=["Freedom", "Defense", "Auth"],
+    )
+    assert winner is not None
+    assert winner["cluster_id"] == 10
+
+
+def test_pick_winner_too_close_returns_none() -> None:
+    from app.services.disambiguation import pick_winner
+
+    # Both candidates match the year — margin will be too small without court/name
+    candidates = [
+        {
+            "cluster_id": 10,
+            "case_name": "Alpha v. Beta",
+            "court": "ca6",
+            "date_filed": "2020-01-01",
+        },
+        {
+            "cluster_id": 20,
+            "case_name": "Gamma v. Delta",
+            "court": "ca6",
+            "date_filed": "2020-06-01",
+        },
+    ]
+    winner = pick_winner(
+        candidates,
+        year="2020",
+        court_id="ca6",
+        name_tokens=[],  # no name tokens to differentiate
+    )
+    # Both score equally (year + court); no winner
+    assert winner is None
+
+
+def test_pick_winner_below_min_score_returns_none() -> None:
+    from app.services.disambiguation import pick_winner
+
+    # Only one candidate but no context to score it
+    candidates = [
+        {
+            "cluster_id": 10,
+            "case_name": "Alpha v. Beta",
+            "court": "ca6",
+            "date_filed": "2020-01-01",
+        },
+    ]
+    winner = pick_winner(
+        candidates,
+        year=None,
+        court_id=None,
+        name_tokens=[],
+    )
+    assert winner is None
+
+
+def test_try_heuristic_resolution_auto_resolves_clear_match() -> None:
+    from app.services.disambiguation import try_heuristic_resolution
+
+    raw_text = (
+        "Am. Freedom Defense Initiative v. Suburban Mobility Auth., 978 F.3d 481 (6th Cir. 2020)."
+    )
+    candidates = [
+        {
+            "cluster_id": 10,
+            "case_name": "Am. Freedom Defense Initiative v. Suburban Mobility Auth.",
+            "court": "ca6",
+            "date_filed": "2020-10-22",
+        },
+        {
+            "cluster_id": 20,
+            "case_name": "Unrelated Case v. Other Party",
+            "court": "ca9",
+            "date_filed": "1999-01-01",
+        },
+    ]
+    winner = try_heuristic_resolution(raw_text, None, candidates)
+    assert winner is not None
+    assert winner["cluster_id"] == 10
+
+
+def test_try_heuristic_resolution_no_context_stays_ambiguous() -> None:
+    from app.services.disambiguation import try_heuristic_resolution
+
+    # Bare reporter cite with no party name context
+    raw_text = "978 F.3d 481."
+    candidates = [
+        {"cluster_id": 10, "case_name": "Case A", "court": "ca6", "date_filed": "2020-01-01"},
+        {"cluster_id": 20, "case_name": "Case B", "court": "ca9", "date_filed": "2019-01-01"},
+    ]
+    winner = try_heuristic_resolution(raw_text, None, candidates)
+    assert winner is None
+
+
+def test_verify_citations_heuristic_auto_resolves_ambiguous() -> None:
+    """Heuristic pass should auto-resolve AMBIGUOUS to VERIFIED on clear winner."""
+
+    class StubAmbiguousWithMetaVerifier:
+        def verify(self, citation: CitationResult) -> VerificationResponse:
+            return VerificationResponse(
+                status="AMBIGUOUS",
+                detail="Multiple matches.",
+                candidate_cluster_ids=[10, 20],
+                candidate_metadata=[
+                    {
+                        "cluster_id": 10,
+                        "case_name": "Am. Freedom Defense v. Suburban Mobility",
+                        "court": "ca6",
+                        "date_filed": "2020-10-22",
+                    },
+                    {
+                        "cluster_id": 20,
+                        "case_name": "Unrelated v. Other",
+                        "court": "ca9",
+                        "date_filed": "1999-01-01",
+                    },
+                ],
+            )
+
+    citations = [
+        CitationResult(
+            raw_text="Am. Freedom Defense v. Suburban Mobility, 978 F.3d 481 (6th Cir. 2020).",
+            citation_type="FullCaseCitation",
+        )
+    ]
+
+    result = verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=StubAmbiguousWithMetaVerifier(),
+    )
+
+    assert result[0].verification_status == "VERIFIED"
+    assert result[0].resolution_method == "heuristic"
+    assert result[0].selected_cluster_id == 10
+
+
+def test_verify_citations_heuristic_stays_ambiguous_when_unclear() -> None:
+    """When candidates are indistinguishable, heuristic should leave status AMBIGUOUS."""
+
+    class StubAmbiguousNoContextVerifier:
+        def verify(self, citation: CitationResult) -> VerificationResponse:
+            return VerificationResponse(
+                status="AMBIGUOUS",
+                detail="Multiple matches.",
+                candidate_cluster_ids=[10, 20],
+                candidate_metadata=[
+                    {
+                        "cluster_id": 10,
+                        "case_name": "Alpha v. Beta",
+                        "court": "ca6",
+                        "date_filed": "2020-01-01",
+                    },
+                    {
+                        "cluster_id": 20,
+                        "case_name": "Gamma v. Delta",
+                        "court": "ca6",
+                        "date_filed": "2020-06-01",
+                    },
+                ],
+            )
+
+    # Both candidates share court and year — heuristic can't differentiate
+    citations = [
+        CitationResult(
+            raw_text="978 F.3d 481 (6th Cir. 2020).",
+            citation_type="FullCaseCitation",
+        )
+    ]
+
+    result = verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=StubAmbiguousNoContextVerifier(),
+    )
+
+    assert result[0].verification_status == "AMBIGUOUS"
+    assert result[0].resolution_method is None
+
+
+def test_heuristic_resolution_writes_to_cache() -> None:
+    """save_audit_run should upsert the resolution cache for heuristic-resolved citations."""
+    from aaa_db.models import CitationResolutionCache
+    from aaa_db.repository import save_audit_run
+
+    citations = [
+        CitationResult(
+            raw_text="Am. Freedom Defense v. Suburban Mobility, 978 F.3d 481 (6th Cir. 2020).",
+            citation_type="FullCaseCitation",
+            verification_status="VERIFIED",
+            verification_detail="Auto-resolved by heuristic (cluster 10).",
+            candidate_cluster_ids=[10, 20],
+            candidate_metadata=[
+                {
+                    "cluster_id": 10,
+                    "case_name": "Am. Freedom Defense v. Suburban Mobility",
+                    "court": "ca6",
+                    "date_filed": "2020-10-22",
+                },
+                {
+                    "cluster_id": 20,
+                    "case_name": "Unrelated v. Other",
+                    "court": "ca9",
+                    "date_filed": "1999-01-01",
+                },
+            ],
+            selected_cluster_id=10,
+            resolution_method="heuristic",
+        )
+    ]
+
+    with SessionLocal() as db:
+        save_audit_run(
+            db,
+            source_type="text",
+            source_name=None,
+            input_text="test",
+            warnings=[],
+            citations=citations,
+        )
+
+    with SessionLocal() as db:
+        cached = db.query(CitationResolutionCache).first()
+
+    assert cached is not None
+    assert cached.selected_cluster_id == 10
+    assert cached.resolution_method == "heuristic"
+    assert cached.court == "ca6"
+
+
+def test_history_detail_shows_heuristic_resolution_label() -> None:
+    """History detail page should show 'Resolved automatically' for heuristic-resolved citations."""
+    import json
+
+    with SessionLocal() as db:
+        run = AuditRun(
+            source_type="text",
+            citation_count=1,
+            verified_count=1,
+            not_found_count=0,
+            ambiguous_count=0,
+            derived_count=0,
+            statute_count=0,
+            error_count=0,
+            unverified_no_token_count=0,
+        )
+        db.add(run)
+        db.flush()
+        citation_row = CitationResultRecord(
+            audit_run_id=run.id,
+            raw_text="Am. Freedom Defense v. Suburban Mobility, 978 F.3d 481 (6th Cir. 2020).",
+            citation_type="FullCaseCitation",
+            verification_status="VERIFIED",
+            verification_detail="Auto-resolved by heuristic (cluster 10).",
+            resolution_method="heuristic",
+            selected_cluster_id=10,
+            candidate_cluster_ids=json.dumps([10, 20]),
+            candidate_metadata=json.dumps(
+                [
+                    {
+                        "cluster_id": 10,
+                        "case_name": "Am. Freedom Defense v. Suburban Mobility",
+                        "court": "ca6",
+                        "date_filed": "2020-10-22",
+                    },
+                    {
+                        "cluster_id": 20,
+                        "case_name": "Unrelated v. Other",
+                        "court": "ca9",
+                        "date_filed": "1999-01-01",
+                    },
+                ]
+            ),
+        )
+        db.add(citation_row)
+        db.commit()
+        run_id = run.id
+
+    response = client.get(f"/history/{run_id}")
+
+    assert response.status_code == 200
+    assert "Resolved automatically (heuristic match)" in response.text
+    assert "Change selection" in response.text
+
+
+def test_user_can_override_heuristic_resolution() -> None:
+    """User posting a different cluster_id overrides a heuristic resolution."""
+    import json
+
+    with SessionLocal() as db:
+        run = AuditRun(
+            source_type="text",
+            citation_count=1,
+            verified_count=1,
+            not_found_count=0,
+            ambiguous_count=0,
+            derived_count=0,
+            statute_count=0,
+            error_count=0,
+            unverified_no_token_count=0,
+        )
+        db.add(run)
+        db.flush()
+        citation_row = CitationResultRecord(
+            audit_run_id=run.id,
+            raw_text="Am. Freedom Defense v. Suburban Mobility, 978 F.3d 481 (6th Cir. 2020).",
+            citation_type="FullCaseCitation",
+            verification_status="VERIFIED",
+            resolution_method="heuristic",
+            selected_cluster_id=10,
+            candidate_cluster_ids=json.dumps([10, 20]),
+            candidate_metadata=json.dumps(
+                [
+                    {
+                        "cluster_id": 10,
+                        "case_name": "Am. Freedom Defense v. Suburban Mobility",
+                        "court": "ca6",
+                        "date_filed": "2020-10-22",
+                    },
+                    {
+                        "cluster_id": 20,
+                        "case_name": "Correct Case v. Other",
+                        "court": "ca6",
+                        "date_filed": "2020-01-01",
+                    },
+                ]
+            ),
+        )
+        db.add(citation_row)
+        db.commit()
+        run_id = run.id
+        citation_id = citation_row.id
+
+    # Override with cluster 20
+    response = client.post(
+        f"/history/{run_id}/citations/{citation_id}/resolve",
+        data={"cluster_id": 20},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+
+    with SessionLocal() as db:
+        updated = db.get(CitationResultRecord, citation_id)
+
+    assert updated.selected_cluster_id == 20
+    assert updated.resolution_method == "user"  # overridden by user
+    assert updated.verification_status == "VERIFIED"
