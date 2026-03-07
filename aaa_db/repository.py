@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Sequence
 
 from sqlalchemy import select
@@ -5,6 +6,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from aaa_db.models import AuditRun, CitationResultRecord
 from app.services.audit import CitationResult
+
+logger = logging.getLogger(__name__)
 
 EXCERPT_LENGTH = 200
 
@@ -80,6 +83,12 @@ def save_audit_run(
     db.add(audit_run)
     db.commit()
     db.refresh(audit_run)
+    logger.info(
+        "Audit run saved: id=%d, source_type=%s, citations=%d",
+        audit_run.id,
+        source_type,
+        len(citations),
+    )
     return audit_run
 
 

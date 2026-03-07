@@ -1,3 +1,6 @@
+import logging
+import sys
+
 from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
@@ -12,6 +15,17 @@ from app.routes.api import router as api_router
 from app.routes.pages import router as pages_router
 from app.settings import PROJECT_ROOT, STATIC_DIR, TEMPLATES_DIR, settings
 
+logger = logging.getLogger(__name__)
+
+
+def configure_logging(level: str = "INFO") -> None:
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)-8s %(name)s %(message)s",
+        stream=sys.stdout,
+        force=True,
+    )
+
 
 def _run_migrations() -> None:
     """Apply any pending Alembic migrations on startup."""
@@ -21,6 +35,14 @@ def _run_migrations() -> None:
 
 
 def create_app() -> FastAPI:
+    configure_logging(settings.log_level)
+    logger.info(
+        "Starting %s (version %s, log_level=%s)",
+        settings.app_name,
+        settings.app_version,
+        settings.log_level,
+    )
+
     app = FastAPI(title=settings.app_name, debug=settings.debug)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -53,7 +75,7 @@ def create_app() -> FastAPI:
                 app_version=settings.app_version,
             )
     except Exception:
-        pass
+        logger.exception("Failed to record startup telemetry.")
 
     return app
 

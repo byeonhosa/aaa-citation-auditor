@@ -1889,3 +1889,56 @@ def test_settings_guardrail_defaults() -> None:
     assert s.max_file_size_mb == 50
     assert s.max_files_per_batch == 10
     assert s.max_citations_per_run == 500
+
+
+# -- Logging tests --------------------------------------------------------
+
+
+def test_logging_is_configured_at_startup() -> None:
+    import logging
+
+    root = logging.getLogger()
+    assert root.handlers, "Expected at least one logging handler configured at startup"
+
+
+def test_no_bare_except_pass_in_production_code() -> None:
+    import ast
+    import os
+
+    class BareExceptPassVisitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.violations: list[tuple[str, int]] = []
+
+        def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+            body = node.body
+            if len(body) == 1 and isinstance(body[0], ast.Pass):
+                self.violations.append(("bare except: pass", node.lineno))
+            self.generic_visit(node)
+
+    violations: list[str] = []
+    app_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app")
+    for dirpath, _, filenames in os.walk(app_dir):
+        for filename in filenames:
+            if not filename.endswith(".py"):
+                continue
+            filepath = os.path.join(dirpath, filename)
+            with open(filepath, encoding="utf-8") as f:
+                source = f.read()
+            try:
+                tree = ast.parse(source, filename=filepath)
+            except SyntaxError:
+                continue
+            visitor = BareExceptPassVisitor()
+            visitor.visit(tree)
+            for msg, lineno in visitor.violations:
+                rel = os.path.relpath(filepath, app_dir)
+                violations.append(f"{rel}:{lineno}: {msg}")
+
+    assert not violations, "bare except:pass found: " + "; ".join(violations)
+
+
+def test_log_level_default_is_info() -> None:
+    from app.settings import Settings
+
+    s = Settings(_env_file=None)
+    assert s.log_level == "INFO"

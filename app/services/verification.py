@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -144,6 +145,7 @@ class CourtListenerVerifier:
         if not lookup_text:
             return VerificationResponse(status="NOT_FOUND", detail="Citation text unavailable.")
 
+        t0 = time.perf_counter()
         try:
             response = post_with_retry(
                 self.base_url,
@@ -152,13 +154,26 @@ class CourtListenerVerifier:
                 timeout_seconds=self.timeout_seconds,
             )
         except httpx.TimeoutException:
+            logger.error(
+                "CourtListener single request timed out for citation: %r", citation.raw_text
+            )
             return VerificationResponse(
                 status="ERROR",
                 detail="CourtListener request timed out after retries.",
             )
         except Exception:
+            logger.exception(
+                "CourtListener single request failed for citation: %r", citation.raw_text
+            )
             return VerificationResponse(status="ERROR", detail="Verification request failed.")
 
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        logger.debug(
+            "CourtListener single response: HTTP %d in %dms for citation: %r",
+            response.status_code,
+            elapsed_ms,
+            citation.raw_text,
+        )
         return self._handle_single_response(response)
 
     def _handle_single_response(self, response: httpx.Response) -> VerificationResponse:
@@ -217,6 +232,8 @@ class CourtListenerVerifier:
         lookup_texts = [_lookup_text_for(c) for c in citations]
         combined_text = "\n".join(lookup_texts)
 
+        t0 = time.perf_counter()
+        logger.debug("CourtListener batch request: %d citations", len(citations))
         try:
             response = post_with_retry(
                 self.base_url,
@@ -225,6 +242,7 @@ class CourtListenerVerifier:
                 timeout_seconds=self.timeout_seconds,
             )
         except httpx.TimeoutException:
+            logger.error("CourtListener batch request timed out (%d citations)", len(citations))
             return [
                 VerificationResponse(
                     status="ERROR",
@@ -232,10 +250,18 @@ class CourtListenerVerifier:
                 )
             ] * len(citations)
         except Exception:
+            logger.exception("CourtListener batch request failed (%d citations)", len(citations))
             return [
                 VerificationResponse(status="ERROR", detail="Batch verification request failed.")
             ] * len(citations)
 
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        logger.info(
+            "CourtListener batch response: HTTP %d in %dms (%d citations)",
+            response.status_code,
+            elapsed_ms,
+            len(citations),
+        )
         return self._handle_batch_response(response, len(citations))
 
     def _handle_batch_response(
@@ -302,6 +328,7 @@ def _verify_single(
         try:
             result = verifier.verify(citation)
         except Exception:
+            logger.exception("Verifier raised unexpectedly for citation: %r", citation.raw_text)
             citation.verification_status = "ERROR"
             citation.verification_detail = "Verification service raised an error."
             continue
@@ -316,16 +343,28 @@ def _verify_batched(
 ) -> None:
     """Verify citations in batches.  Falls back to single mode per-batch on failure."""
     batches = _split_into_batches(verifiable)
+    logger.debug(
+        "Verification: %d citation(s) split into %d batch(es)", len(verifiable), len(batches)
+    )
 
-    for batch in batches:
+    for batch_idx, batch in enumerate(batches):
         try:
             results = verifier.verify_batch(batch)
         except Exception:
-            # Batch call itself raised — fall back to single mode for this batch
+            logger.warning(
+                "Batch %d/%d failed, falling back to single-citation mode (%d citations)",
+                batch_idx + 1,
+                len(batches),
+                len(batch),
+            )
             for citation in batch:
                 try:
                     result = verifier.verify(citation)
                 except Exception:
+                    logger.exception(
+                        "Verifier raised during batch fallback for citation: %r",
+                        citation.raw_text,
+                    )
                     citation.verification_status = "ERROR"
                     citation.verification_detail = "Verification service raised an error."
                     continue
@@ -349,6 +388,8 @@ def verify_citations(
 ) -> list[CitationResult]:
     # ── First pass: handle STATUTE, DERIVED, and NO_TOKEN ──
     verifiable: list[CitationResult] = []
+    statute_count = 0
+    derived_count = 0
 
     for citation in citations:
         if is_statute_citation(citation):
@@ -356,6 +397,7 @@ def verify_citations(
             citation.verification_detail = (
                 "Statute citation detected — not verified (case law verification only)."
             )
+            statute_count += 1
             continue
 
         if is_derived_citation(citation):
@@ -364,6 +406,7 @@ def verify_citations(
             citation.verification_detail = (
                 f"Derived from prior citation ({parent}); not independently verified."
             )
+            derived_count += 1
             continue
 
         if not courtlistener_token:
@@ -372,6 +415,14 @@ def verify_citations(
             continue
 
         verifiable.append(citation)
+
+    logger.info(
+        "Verification starting: %d total, %d case law, %d statute, %d derived",
+        len(citations),
+        len(verifiable),
+        statute_count,
+        derived_count,
+    )
 
     if not verifiable or not courtlistener_token:
         return citations
@@ -390,6 +441,9 @@ def verify_citations(
         _verify_batched(verifiable, active_verifier)
     else:
         _verify_single(verifiable, active_verifier)
+
+    summary = summarize_verification_statuses(citations)
+    logger.info("Verification complete: %s", summary)
 
     return citations
 

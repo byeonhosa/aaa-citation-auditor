@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     max_files_per_batch: int = 10
     max_citations_per_run: int = 500
 
+    log_level: str = "INFO"
+
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
