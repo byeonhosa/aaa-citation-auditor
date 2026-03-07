@@ -73,7 +73,9 @@
       <p><strong>Verification:</strong> {{ citation.verification_status or "UNKNOWN" }}</p>
       <p><strong>Verification detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
       <p><strong>Snippet:</strong> {{ citation.snippet or "(snippet unavailable)" }}</p>
-      {% if citation.resolution_method == "heuristic" and citation.candidate_metadata %}
+      {% if citation.resolution_method == "cache" %}
+      <p><strong>Resolution:</strong> Resolved from cache (cluster {{ citation.selected_cluster_id }})</p>
+      {% elif citation.resolution_method == "heuristic" and citation.candidate_metadata %}
       <p><strong>Resolution:</strong> Resolved automatically (heuristic match) — cluster {{ citation.selected_cluster_id }}</p>
       <details>
         <summary>Change selection</summary>
