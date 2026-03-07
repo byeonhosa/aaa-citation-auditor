@@ -39,6 +39,7 @@ def export_markdown_for_run(run: AuditRun) -> str:
     lines.append(
         f"Summary: VERIFIED={run.verified_count}, NOT_FOUND={run.not_found_count}, "
         f"AMBIGUOUS={run.ambiguous_count}, DERIVED={run.derived_count}, "
+        f"STATUTE_DETECTED={run.statute_count}, "
         f"ERROR={run.error_count}, UNVERIFIED_NO_TOKEN={run.unverified_no_token_count}"
     )
     lines.append("")

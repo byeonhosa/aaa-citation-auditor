@@ -140,6 +140,8 @@ button {
 .status-ambiguous { background-color: #fff4e5; }
 .status-derived { background-color: #eef3ff; color: #4a6785; }
 .summary-card-derived { background: #eef3ff; border-color: #c5d5ea; }
+.status-statute_detected { background-color: #e6f7f5; color: #1a6b5a; }
+.summary-card-statute { background: #e6f7f5; border-color: #b3ddd6; }
 .status-error { background-color: #fdecec; }
 .status-unverified_no_token { background-color: #f0f0f0; }
 

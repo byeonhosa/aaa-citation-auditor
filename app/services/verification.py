@@ -18,6 +18,13 @@ class CitationVerifier(Protocol):
     def verify(self, citation: CitationResult) -> VerificationResponse: ...
 
 
+STATUTE_CITATION_TYPES = frozenset({"FullLawCitation"})
+
+
+def is_statute_citation(citation: CitationResult) -> bool:
+    return citation.citation_type in STATUTE_CITATION_TYPES
+
+
 def is_derived_citation(citation: CitationResult) -> bool:
     return citation.raw_text.lower().startswith("id.") or citation.citation_type.lower().startswith(
         "id"
@@ -158,6 +165,13 @@ def verify_citations(
         )
 
     for citation in citations:
+        if is_statute_citation(citation):
+            citation.verification_status = "STATUTE_DETECTED"
+            citation.verification_detail = (
+                "Statute citation detected — not verified (case law verification only)."
+            )
+            continue
+
         if is_derived_citation(citation):
             citation.verification_status = "DERIVED"
             parent = citation.resolved_from or "unknown prior citation"
