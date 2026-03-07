@@ -16,14 +16,14 @@ class Settings(BaseSettings):
 
     courtlistener_token: str | None = None
     verification_base_url: str = "https://www.courtlistener.com/api/rest/v4/citation-lookup/"
-    verification_timeout_seconds: int = 8
+    courtlistener_timeout_seconds: int = 30
     batch_verification: bool = True
 
     ai_memo_enabled: bool = False
     ai_memo_include_content: bool = False
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-mini"
-    ai_timeout_seconds: int = 10
+    ai_request_timeout_seconds: int = 60
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

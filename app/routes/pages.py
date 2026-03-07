@@ -138,7 +138,7 @@ def generate_ai_memo_for_group(
             enabled=settings.ai_memo_enabled,
             api_key=settings.openai_api_key,
             model=settings.openai_model,
-            timeout_seconds=settings.ai_timeout_seconds,
+            timeout_seconds=settings.ai_request_timeout_seconds,
         )
     except Exception:
         return unavailable_memo("AI memo generation failed.")
@@ -206,7 +206,7 @@ async def run_audit(
             citation_results,
             courtlistener_token=settings.courtlistener_token,
             verification_base_url=settings.verification_base_url,
-            verification_timeout_seconds=settings.verification_timeout_seconds,
+            courtlistener_timeout_seconds=settings.courtlistener_timeout_seconds,
             batch_verification=settings.batch_verification,
         )
 

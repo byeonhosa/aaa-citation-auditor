@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Protocol
-from urllib import error, parse, request
+
+import httpx
 
 from app.services.audit import CitationResult
+from app.services.http_client import post_with_retry
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -123,56 +128,67 @@ def map_courtlistener_result(result: dict[str, Any]) -> VerificationResponse:
 
 
 class CourtListenerVerifier:
-    def __init__(self, token: str, base_url: str, timeout_seconds: int = 8) -> None:
+    def __init__(self, token: str, base_url: str, timeout_seconds: int = 30) -> None:
         self.token = token
         self.base_url = base_url
         self.timeout_seconds = timeout_seconds
+        self._headers = {
+            "Authorization": f"Token {self.token}",
+            "Accept": "application/json",
+        }
+
+    # ── single-citation path ──────────────────────────────────────
 
     def verify(self, citation: CitationResult) -> VerificationResponse:
         lookup_text = _lookup_text_for(citation)
         if not lookup_text:
             return VerificationResponse(status="NOT_FOUND", detail="Citation text unavailable.")
 
-        form_data = parse.urlencode({"text": lookup_text}).encode("utf-8")
-        req = request.Request(
-            self.base_url,
-            data=form_data,
-            method="POST",
-            headers={
-                "Authorization": f"Token {self.token}",
-                "Accept": "application/json",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-        )
-
         try:
-            with request.urlopen(req, timeout=self.timeout_seconds) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except error.HTTPError as exc:
-            if exc.code == 429:
-                return VerificationResponse(
-                    status="ERROR",
-                    detail="CourtListener rate limit reached; please retry later.",
-                )
-            if exc.code == 404:
-                return VerificationResponse(
-                    status="NOT_FOUND",
-                    detail="No match found in CourtListener.",
-                )
-            if exc.code == 400:
-                return VerificationResponse(
-                    status="ERROR",
-                    detail="CourtListener rejected citation lookup request.",
-                )
-            return VerificationResponse(
-                status="ERROR", detail=f"Verification HTTP error: {exc.code}."
+            response = post_with_retry(
+                self.base_url,
+                data={"text": lookup_text},
+                headers=self._headers,
+                timeout_seconds=self.timeout_seconds,
             )
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except httpx.TimeoutException:
             return VerificationResponse(
-                status="ERROR", detail="Could not parse verification response."
+                status="ERROR",
+                detail="CourtListener request timed out after retries.",
             )
         except Exception:
             return VerificationResponse(status="ERROR", detail="Verification request failed.")
+
+        return self._handle_single_response(response)
+
+    def _handle_single_response(self, response: httpx.Response) -> VerificationResponse:
+        if response.status_code == 429:
+            return VerificationResponse(
+                status="ERROR",
+                detail="CourtListener rate limit reached; please retry later.",
+            )
+        if response.status_code == 404:
+            return VerificationResponse(
+                status="NOT_FOUND",
+                detail="No match found in CourtListener.",
+            )
+        if response.status_code == 400:
+            return VerificationResponse(
+                status="ERROR",
+                detail="CourtListener rejected citation lookup request.",
+            )
+        if response.status_code >= 400:
+            return VerificationResponse(
+                status="ERROR",
+                detail=f"Verification HTTP error: {response.status_code}.",
+            )
+
+        try:
+            payload = response.json()
+        except (json.JSONDecodeError, ValueError):
+            return VerificationResponse(
+                status="ERROR", detail="Could not parse verification response."
+            )
 
         if not isinstance(payload, list) or not payload:
             return VerificationResponse(
@@ -187,6 +203,8 @@ class CourtListenerVerifier:
 
         return map_courtlistener_result(first_result)
 
+    # ── batch path ────────────────────────────────────────────────
+
     def verify_batch(self, citations: list[CitationResult]) -> list[VerificationResponse]:
         """Verify multiple citations in a single API call.
 
@@ -198,32 +216,19 @@ class CourtListenerVerifier:
 
         lookup_texts = [_lookup_text_for(c) for c in citations]
         combined_text = "\n".join(lookup_texts)
-        form_data = parse.urlencode({"text": combined_text}).encode("utf-8")
-        req = request.Request(
-            self.base_url,
-            data=form_data,
-            method="POST",
-            headers={
-                "Authorization": f"Token {self.token}",
-                "Accept": "application/json",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-        )
 
         try:
-            with request.urlopen(req, timeout=self.timeout_seconds) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except error.HTTPError as exc:
-            detail = (
-                "CourtListener rate limit reached; please retry later."
-                if exc.code == 429
-                else f"Batch verification HTTP error: {exc.code}."
+            response = post_with_retry(
+                self.base_url,
+                data={"text": combined_text},
+                headers=self._headers,
+                timeout_seconds=self.timeout_seconds,
             )
-            return [VerificationResponse(status="ERROR", detail=detail)] * len(citations)
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except httpx.TimeoutException:
             return [
                 VerificationResponse(
-                    status="ERROR", detail="Could not parse batch verification response."
+                    status="ERROR",
+                    detail="CourtListener batch request timed out after retries.",
                 )
             ] * len(citations)
         except Exception:
@@ -231,14 +236,44 @@ class CourtListenerVerifier:
                 VerificationResponse(status="ERROR", detail="Batch verification request failed.")
             ] * len(citations)
 
+        return self._handle_batch_response(response, len(citations))
+
+    def _handle_batch_response(
+        self, response: httpx.Response, expected_count: int
+    ) -> list[VerificationResponse]:
+        if response.status_code == 429:
+            return [
+                VerificationResponse(
+                    status="ERROR",
+                    detail="CourtListener rate limit reached; please retry later.",
+                )
+            ] * expected_count
+        if response.status_code >= 400:
+            return [
+                VerificationResponse(
+                    status="ERROR",
+                    detail=f"Batch verification HTTP error: {response.status_code}.",
+                )
+            ] * expected_count
+
+        try:
+            payload = response.json()
+        except (json.JSONDecodeError, ValueError):
+            return [
+                VerificationResponse(
+                    status="ERROR",
+                    detail="Could not parse batch verification response.",
+                )
+            ] * expected_count
+
         if not isinstance(payload, list):
             return [
                 VerificationResponse(status="ERROR", detail="Unexpected batch response shape.")
-            ] * len(citations)
+            ] * expected_count
 
         # Map results by position (index-aligned with input)
         results: list[VerificationResponse] = []
-        for i in range(len(citations)):
+        for i in range(expected_count):
             if i < len(payload):
                 item = payload[i]
                 if isinstance(item, dict):
@@ -309,7 +344,7 @@ def verify_citations(
     courtlistener_token: str | None,
     verification_base_url: str,
     verifier: CitationVerifier | None = None,
-    verification_timeout_seconds: int = 8,
+    courtlistener_timeout_seconds: int = 30,
     batch_verification: bool = True,
 ) -> list[CitationResult]:
     # ── First pass: handle STATUTE, DERIVED, and NO_TOKEN ──
@@ -345,7 +380,7 @@ def verify_citations(
     active_verifier = verifier or CourtListenerVerifier(
         token=courtlistener_token,
         base_url=verification_base_url,
-        timeout_seconds=verification_timeout_seconds,
+        timeout_seconds=courtlistener_timeout_seconds,
     )
 
     # ── Second pass: verify case-law citations ──

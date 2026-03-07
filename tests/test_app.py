@@ -1,5 +1,6 @@
 from io import BytesIO
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from docx import Document
@@ -1412,3 +1413,298 @@ def test_batch_verification_setting_default_is_true() -> None:
         _env_file=None,
     )
     assert s.batch_verification is True
+
+
+# ── httpx + retry tests ────────────────────────────────────────────
+
+
+def _mock_httpx_response(status_code: int, json_data: Any = None) -> Any:
+    """Create an httpx.Response suitable for testing."""
+    import httpx as _httpx
+
+    req = _httpx.Request("POST", "https://example.test/")
+    return _httpx.Response(status_code, json=json_data, request=req)
+
+
+class _MockClient:
+    """Drop-in replacement for httpx.Client that returns scripted responses."""
+
+    def __init__(self, responses: list, **_kwargs: Any) -> None:
+        self._responses = list(responses)
+        self._call_count = 0
+
+    def __enter__(self) -> "_MockClient":
+        return self
+
+    def __exit__(self, *_args: Any) -> None:
+        pass
+
+    def post(self, url: str, **_kwargs: Any) -> Any:
+        if self._call_count >= len(self._responses):
+            raise RuntimeError("MockClient exhausted responses")
+        item = self._responses[self._call_count]
+        self._call_count += 1
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+def test_post_with_retry_retries_on_429_then_succeeds(monkeypatch) -> None:
+    """A 429 followed by a 200 should return the 200 response."""
+    from app.services.http_client import post_with_retry
+
+    responses = [
+        _mock_httpx_response(429),
+        _mock_httpx_response(200, json_data=[{"status": 200, "clusters": []}]),
+    ]
+
+    monkeypatch.setattr(
+        "app.services.http_client.httpx.Client",
+        lambda **kw: _MockClient(responses, **kw),
+    )
+    monkeypatch.setattr("app.services.http_client.time.sleep", lambda _: None)
+
+    resp = post_with_retry(
+        "https://example.test/verify",
+        data={"text": "test"},
+        headers={"Authorization": "Token test"},
+    )
+
+    assert resp.status_code == 200
+
+
+def test_post_with_retry_retries_on_timeout_then_succeeds(monkeypatch) -> None:
+    """A timeout followed by a success should return the success response."""
+    import httpx as _httpx
+
+    from app.services.http_client import post_with_retry
+
+    responses = [
+        _httpx.ReadTimeout("timed out"),
+        _mock_httpx_response(200, json_data=[{"status": 200}]),
+    ]
+
+    monkeypatch.setattr(
+        "app.services.http_client.httpx.Client",
+        lambda **kw: _MockClient(responses, **kw),
+    )
+    monkeypatch.setattr("app.services.http_client.time.sleep", lambda _: None)
+
+    resp = post_with_retry(
+        "https://example.test/verify",
+        data={"text": "test"},
+        headers={"Authorization": "Token test"},
+    )
+
+    assert resp.status_code == 200
+
+
+def test_post_with_retry_exhausts_retries_on_429(monkeypatch) -> None:
+    """Three consecutive 429s should return the last 429 response."""
+    from app.services.http_client import post_with_retry
+
+    responses = [
+        _mock_httpx_response(429),
+        _mock_httpx_response(429),
+        _mock_httpx_response(429),
+    ]
+
+    monkeypatch.setattr(
+        "app.services.http_client.httpx.Client",
+        lambda **kw: _MockClient(responses, **kw),
+    )
+    monkeypatch.setattr("app.services.http_client.time.sleep", lambda _: None)
+
+    resp = post_with_retry(
+        "https://example.test/verify",
+        data={"text": "test"},
+        headers={"Authorization": "Token test"},
+    )
+
+    assert resp.status_code == 429
+
+
+def test_post_with_retry_exhausts_retries_on_timeout(monkeypatch) -> None:
+    """Three consecutive timeouts should raise TimeoutException."""
+    import httpx as _httpx
+
+    from app.services.http_client import post_with_retry
+
+    responses = [
+        _httpx.ReadTimeout("timed out"),
+        _httpx.ReadTimeout("timed out"),
+        _httpx.ReadTimeout("timed out"),
+    ]
+
+    monkeypatch.setattr(
+        "app.services.http_client.httpx.Client",
+        lambda **kw: _MockClient(responses, **kw),
+    )
+    monkeypatch.setattr("app.services.http_client.time.sleep", lambda _: None)
+
+    with pytest.raises(_httpx.TimeoutException):
+        post_with_retry(
+            "https://example.test/verify",
+            data={"text": "test"},
+            headers={"Authorization": "Token test"},
+        )
+
+
+def test_courtlistener_verifier_retry_429_then_verified(monkeypatch) -> None:
+    """CourtListenerVerifier retries a 429 and returns VERIFIED on eventual success."""
+    from app.services.verification import CourtListenerVerifier
+
+    responses = [
+        _mock_httpx_response(429),
+        _mock_httpx_response(200, json_data=[{"status": 200, "clusters": [{"id": 1}]}]),
+    ]
+
+    monkeypatch.setattr(
+        "app.services.http_client.httpx.Client",
+        lambda **kw: _MockClient(responses, **kw),
+    )
+    monkeypatch.setattr("app.services.http_client.time.sleep", lambda _: None)
+
+    verifier = CourtListenerVerifier(
+        token="test-token",
+        base_url="https://example.test/verify",
+        timeout_seconds=5,
+    )
+    result = verifier.verify(
+        CitationResult(
+            raw_text="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+            citation_type="FullCaseCitation",
+        ),
+    )
+
+    assert result.status == "VERIFIED"
+
+
+def test_courtlistener_verifier_timeout_exhausted_returns_error(monkeypatch) -> None:
+    """All retries timing out should mark citation as ERROR."""
+    import httpx as _httpx
+
+    from app.services.verification import CourtListenerVerifier
+
+    responses = [
+        _httpx.ReadTimeout("timed out"),
+        _httpx.ReadTimeout("timed out"),
+        _httpx.ReadTimeout("timed out"),
+    ]
+
+    monkeypatch.setattr(
+        "app.services.http_client.httpx.Client",
+        lambda **kw: _MockClient(responses, **kw),
+    )
+    monkeypatch.setattr("app.services.http_client.time.sleep", lambda _: None)
+
+    verifier = CourtListenerVerifier(
+        token="test-token",
+        base_url="https://example.test/verify",
+        timeout_seconds=5,
+    )
+    result = verifier.verify(
+        CitationResult(
+            raw_text="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+            citation_type="FullCaseCitation",
+        ),
+    )
+
+    assert result.status == "ERROR"
+    assert "timed out" in result.detail.lower()
+
+
+def test_courtlistener_verifier_all_429s_returns_error(monkeypatch) -> None:
+    """All retries exhausted on 429 should return rate-limit ERROR."""
+    from app.services.verification import CourtListenerVerifier
+
+    responses = [
+        _mock_httpx_response(429),
+        _mock_httpx_response(429),
+        _mock_httpx_response(429),
+    ]
+
+    monkeypatch.setattr(
+        "app.services.http_client.httpx.Client",
+        lambda **kw: _MockClient(responses, **kw),
+    )
+    monkeypatch.setattr("app.services.http_client.time.sleep", lambda _: None)
+
+    verifier = CourtListenerVerifier(
+        token="test-token",
+        base_url="https://example.test/verify",
+        timeout_seconds=5,
+    )
+    result = verifier.verify(
+        CitationResult(
+            raw_text="Brown v. Board of Educ., 347 U.S. 483 (1954).",
+            citation_type="FullCaseCitation",
+        ),
+    )
+
+    assert result.status == "ERROR"
+    assert "rate limit" in result.detail.lower()
+
+
+def test_ai_memo_retry_timeout_returns_unavailable(monkeypatch) -> None:
+    """AI memo generation with all retries timing out should return unavailable."""
+    import httpx as _httpx
+
+    from app.services.ai_risk_memo import generate_risk_memo
+
+    responses = [
+        _httpx.ReadTimeout("timed out"),
+        _httpx.ReadTimeout("timed out"),
+        _httpx.ReadTimeout("timed out"),
+    ]
+
+    monkeypatch.setattr(
+        "app.services.http_client.httpx.Client",
+        lambda **kw: _MockClient(responses, **kw),
+    )
+    monkeypatch.setattr("app.services.http_client.time.sleep", lambda _: None)
+
+    memo = generate_risk_memo(
+        {"verification_summary": {"VERIFIED": 1}},
+        enabled=True,
+        api_key="sk-test-key",
+        model="gpt-4.1-mini",
+        timeout_seconds=5,
+    )
+
+    assert memo.available is False
+    assert "timed out" in (memo.unavailable_reason or "").lower()
+
+
+def test_settings_new_timeout_defaults() -> None:
+    """Verify the renamed timeout settings have correct defaults."""
+    from app.settings import Settings
+
+    s = Settings(_env_file=None)
+    assert s.courtlistener_timeout_seconds == 30
+    assert s.ai_request_timeout_seconds == 60
+
+
+def test_no_urllib_in_production_code() -> None:
+    """Ensure urllib is not imported in any production module."""
+    import importlib
+    import sys
+
+    prod_modules = [
+        "app.services.verification",
+        "app.services.ai_risk_memo",
+        "app.services.http_client",
+    ]
+    for mod_name in prod_modules:
+        if mod_name in sys.modules:
+            importlib.reload(sys.modules[mod_name])
+        else:
+            importlib.import_module(mod_name)
+
+        mod = sys.modules[mod_name]
+        source_file = mod.__file__
+        assert source_file is not None
+        with open(source_file, encoding="utf-8") as f:
+            source = f.read()
+        assert "from urllib" not in source, f"{mod_name} still imports urllib"
+        assert "import urllib" not in source, f"{mod_name} still imports urllib"
