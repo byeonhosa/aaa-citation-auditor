@@ -7,8 +7,8 @@ from docx import Document
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from aaa_db.models import AuditRun, Base, CitationResultRecord, TelemetryEvent
-from aaa_db.session import SessionLocal, engine
+from aaa_db.models import AuditRun, CitationResultRecord, TelemetryEvent
+from aaa_db.session import SessionLocal
 from aaa_db.telemetry_repository import get_or_create_install_id
 from app.main import app, create_app
 from app.routes.pages import build_ai_memo_input, citation_to_context
@@ -44,22 +44,24 @@ class StubErrorVerifier:
         raise RuntimeError("verification crashed")
 
 
-@pytest.fixture(autouse=True)
-def clean_db() -> None:
-    Base.metadata.create_all(bind=engine)
-    with SessionLocal() as db:
-        db.query(CitationResultRecord).delete()
-        db.query(AuditRun).delete()
-        db.query(TelemetryEvent).delete()
-        db.commit()
-
-
 def _docx_bytes(text_value: str) -> bytes:
     document = Document()
     document.add_paragraph(text_value)
     buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue()
+
+
+def _pdf_bytes(text_value: str) -> bytes:
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page()
+    if text_value:
+        page.insert_text((72, 72), text_value)
+    buf = doc.tobytes()
+    doc.close()
+    return buf
 
 
 def test_app_imports() -> None:
@@ -166,6 +168,22 @@ def test_extract_text_from_docx_helper() -> None:
     extracted_text = extract_text_from_docx(_docx_bytes("Roe v. Wade, 410 U.S. 113 (1973)."))
 
     assert "Roe v. Wade" in extracted_text
+
+
+def test_extract_text_from_pdf_with_citations() -> None:
+    from app.services.audit import extract_text_from_pdf
+
+    text = extract_text_from_pdf(_pdf_bytes("Brown v. Board of Educ., 347 U.S. 483 (1954)."))
+
+    assert "Brown v. Board" in text
+
+
+def test_extract_text_from_pdf_with_no_text() -> None:
+    from app.services.audit import extract_text_from_pdf
+
+    text = extract_text_from_pdf(_pdf_bytes(""))
+
+    assert text.strip() == ""
 
 
 def test_resolve_id_citations_helper() -> None:
