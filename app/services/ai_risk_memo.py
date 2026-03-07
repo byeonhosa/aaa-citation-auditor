@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
-from urllib import request
+
+import httpx
+
+from app.services.http_client import post_with_retry
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -96,20 +102,28 @@ def generate_risk_memo(
         "temperature": 0.1,
     }
 
-    req = request.Request(
-        "https://api.openai.com/v1/chat/completions",
-        method="POST",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-    )
+    try:
+        response = post_with_retry(
+            "https://api.openai.com/v1/chat/completions",
+            json_body=payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+            },
+            timeout_seconds=timeout_seconds,
+        )
+    except httpx.TimeoutException:
+        logger.warning("OpenAI request timed out after retries.")
+        return unavailable_memo("AI memo request timed out after retries.")
+    except Exception:
+        logger.warning("OpenAI request failed after retries.", exc_info=True)
+        return unavailable_memo("AI memo generation failed.")
+
+    if response.status_code != 200:
+        logger.warning("OpenAI returned HTTP %d.", response.status_code)
+        return unavailable_memo("AI memo generation failed.")
 
     try:
-        with request.urlopen(req, timeout=timeout_seconds) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-
+        body = response.json()
         content = body["choices"][0]["message"]["content"]
         parsed = json.loads(content)
         return _normalize_payload(parsed)
