@@ -169,6 +169,36 @@ def resolve_citation(
 
     db.commit()
     db.refresh(citation)
+
+    # Recalculate run summary counts from current citation statuses
+    all_citations = db.scalars(
+        select(CitationResultRecord).where(
+            CitationResultRecord.audit_run_id == citation.audit_run_id
+        )
+    ).all()
+    run = db.get(AuditRun, citation.audit_run_id)
+    if run is not None:
+        status_counts = {
+            "VERIFIED": 0,
+            "NOT_FOUND": 0,
+            "AMBIGUOUS": 0,
+            "ERROR": 0,
+            "UNVERIFIED_NO_TOKEN": 0,
+            "DERIVED": 0,
+            "STATUTE_DETECTED": 0,
+        }
+        for c in all_citations:
+            if c.verification_status in status_counts:
+                status_counts[c.verification_status] += 1
+        run.verified_count = status_counts["VERIFIED"]
+        run.not_found_count = status_counts["NOT_FOUND"]
+        run.ambiguous_count = status_counts["AMBIGUOUS"]
+        run.error_count = status_counts["ERROR"]
+        run.unverified_no_token_count = status_counts["UNVERIFIED_NO_TOKEN"]
+        run.derived_count = status_counts["DERIVED"]
+        run.statute_count = status_counts["STATUTE_DETECTED"]
+        db.commit()
+
     logger.info(
         "Citation resolved: id=%d, cluster_id=%d, method=%s",
         citation.id,

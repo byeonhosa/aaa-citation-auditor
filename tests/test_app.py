@@ -2418,3 +2418,65 @@ def test_dashboard_ambiguous_with_candidates_shows_history_link(monkeypatch) -> 
     assert response.status_code == 200
     assert "AMBIGUOUS" in response.text
     assert "Go to history to select the correct case" in response.text
+
+
+def test_resolve_citation_updates_run_summary_counts() -> None:
+    """Resolving an AMBIGUOUS citation should update the run's summary counts."""
+    import json
+
+    with SessionLocal() as db:
+        run = AuditRun(
+            source_type="text",
+            citation_count=1,
+            verified_count=0,
+            not_found_count=0,
+            ambiguous_count=1,
+            derived_count=0,
+            statute_count=0,
+            error_count=0,
+            unverified_no_token_count=0,
+        )
+        db.add(run)
+        db.flush()
+
+        citation_row = CitationResultRecord(
+            audit_run_id=run.id,
+            raw_text="Smith v. Jones, 100 U.S. 200 (2000).",
+            citation_type="FullCaseCitation",
+            verification_status="AMBIGUOUS",
+            verification_detail="Multiple matches.",
+            candidate_cluster_ids=json.dumps([10, 20]),
+            candidate_metadata=json.dumps(
+                [
+                    {
+                        "cluster_id": 10,
+                        "case_name": "Smith v. Jones",
+                        "court": "scotus",
+                        "date_filed": "2000-01-01",
+                    },
+                ]
+            ),
+        )
+        db.add(citation_row)
+        db.commit()
+        run_id = run.id
+        citation_id = citation_row.id
+
+    # Confirm original counts
+    with SessionLocal() as db:
+        saved_run = db.get(AuditRun, run_id)
+    assert saved_run.ambiguous_count == 1
+    assert saved_run.verified_count == 0
+
+    # Resolve the citation
+    client.post(
+        f"/history/{run_id}/citations/{citation_id}/resolve",
+        data={"cluster_id": 10},
+        follow_redirects=False,
+    )
+
+    # Counts must reflect the new status
+    with SessionLocal() as db:
+        updated_run = db.get(AuditRun, run_id)
+    assert updated_run.ambiguous_count == 0
+    assert updated_run.verified_count == 1
