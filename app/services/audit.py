@@ -20,6 +20,8 @@ class CitationResult:
     verification_status: str | None = None
     verification_detail: str | None = None
     snippet: str | None = None
+    candidate_cluster_ids: list[int] | None = None
+    candidate_metadata: list[dict] | None = None
 
 
 @dataclass

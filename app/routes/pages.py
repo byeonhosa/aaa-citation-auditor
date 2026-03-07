@@ -1,14 +1,21 @@
+import json
 import logging
 from contextlib import contextmanager
 from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from aaa_db.models import AuditRun
-from aaa_db.repository import get_audit_run, list_audit_runs, save_audit_run
+from aaa_db.repository import (
+    get_audit_run,
+    get_citation,
+    list_audit_runs,
+    resolve_citation,
+    save_audit_run,
+)
 from aaa_db.session import SessionLocal
 from aaa_db.telemetry_repository import get_or_create_install_id, record_telemetry_event
 from app.services.ai_risk_memo import generate_risk_memo, unavailable_memo
@@ -58,8 +65,16 @@ def _record_event_safely(**kwargs) -> None:  # noqa: ANN003
         logger.exception("Failed to record telemetry event.")
 
 
-def citation_to_context(citation: Any) -> dict[str, str | None]:
+def citation_to_context(citation: Any) -> dict[str, Any]:
+    raw_candidate_metadata = getattr(citation, "candidate_metadata", None)
+    if isinstance(raw_candidate_metadata, str):
+        try:
+            raw_candidate_metadata = json.loads(raw_candidate_metadata)
+        except (ValueError, TypeError):
+            raw_candidate_metadata = None
+
     return {
+        "id": getattr(citation, "id", None),
         "raw_text": citation.raw_text,
         "citation_type": citation.citation_type,
         "normalized_text": citation.normalized_text,
@@ -67,6 +82,9 @@ def citation_to_context(citation: Any) -> dict[str, str | None]:
         "verification_status": citation.verification_status,
         "verification_detail": citation.verification_detail,
         "snippet": getattr(citation, "snippet", None),
+        "candidate_metadata": raw_candidate_metadata,
+        "selected_cluster_id": getattr(citation, "selected_cluster_id", None),
+        "resolution_method": getattr(citation, "resolution_method", None),
     }
 
 
@@ -395,6 +413,43 @@ def export_run(request: Request, run_id: int, format: str = Query(default="markd
         )
 
     raise HTTPException(status_code=400, detail="Unsupported export format")
+
+
+@router.post("/history/{run_id}/citations/{citation_id}/resolve")
+def resolve_citation_route(
+    request: Request,
+    run_id: int,
+    citation_id: int,
+    cluster_id: int = Form(...),
+) -> RedirectResponse:
+    with db_session() as db:
+        citation = get_citation(db, citation_id)
+        if citation is None or citation.audit_run_id != run_id:
+            raise HTTPException(status_code=404, detail="Citation not found")
+
+        raw_candidate_metadata = citation.candidate_metadata
+        candidate_metadata: list[dict] | None = None
+        if isinstance(raw_candidate_metadata, str):
+            try:
+                candidate_metadata = json.loads(raw_candidate_metadata)
+            except (ValueError, TypeError):
+                candidate_metadata = None
+
+        resolve_citation(
+            db,
+            citation,
+            selected_cluster_id=cluster_id,
+            resolution_method="user",
+            candidate_metadata=candidate_metadata,
+        )
+
+    logger.info(
+        "User resolved citation id=%d to cluster_id=%d in run %d",
+        citation_id,
+        cluster_id,
+        run_id,
+    )
+    return RedirectResponse(url=f"/history/{run_id}", status_code=303)
 
 
 @router.get("/settings", response_class=HTMLResponse)

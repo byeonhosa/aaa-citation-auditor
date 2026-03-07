@@ -27,6 +27,7 @@ def _citation_rows(run: AuditRun) -> list[dict[str, str]]:
                 "verification_status": citation.verification_status or "",
                 "verification_detail": citation.verification_detail or "",
                 "snippet": citation.snippet or "",
+                "resolution_method": citation.resolution_method or "",
             }
         )
     return rows
@@ -77,6 +78,7 @@ def export_csv_for_run(run: AuditRun) -> str:
         "verification_status",
         "verification_detail",
         "snippet",
+        "resolution_method",
     ]
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)
     writer.writeheader()

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -49,6 +49,18 @@ class CitationResultRecord(Base):
     verification_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Disambiguation fields (populated when CourtListener returns multiple matches)
+    candidate_cluster_ids: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )  # JSON array of int IDs
+    candidate_metadata: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )  # JSON array of {cluster_id, case_name, court, date_filed}
+    selected_cluster_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    resolution_method: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )  # "user", "heuristic", "cache"
+
     audit_run: Mapped[AuditRun] = relationship(back_populates="citations")
 
 
@@ -74,3 +86,21 @@ class TelemetryEvent(Base):
 
     had_warning: Mapped[bool] = mapped_column(Boolean, default=False)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class CitationResolutionCache(Base):
+    __tablename__ = "citation_resolution_cache"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    normalized_cite: Mapped[str] = mapped_column(String(512))
+    selected_cluster_id: Mapped[int] = mapped_column(Integer)
+    case_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    court: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    date_filed: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    resolution_method: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_citation_resolution_cache_normalized_cite", "normalized_cite", unique=True),
+    )

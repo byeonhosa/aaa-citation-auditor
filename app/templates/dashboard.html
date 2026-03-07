@@ -160,6 +160,9 @@
       <p><strong>Verification:</strong> <span class="verification-badge status-{{ (citation.verification_status or 'UNKNOWN') | lower }}">{{ citation.verification_status or "UNKNOWN" }}</span></p>
       <p><strong>Verification detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
       <p class="snippet"><strong>Snippet:</strong> {{ citation.snippet or "(snippet unavailable)" }}</p>
+      {% if citation.verification_status == "AMBIGUOUS" and citation.candidate_metadata and group.run_id %}
+      <p class="disambiguate-hint">Multiple matches found. <a href="/history/{{ group.run_id }}">Go to history to select the correct case.</a></p>
+      {% endif %}
     </li>
     {% endfor %}
   </ul>
