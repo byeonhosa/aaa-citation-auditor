@@ -90,6 +90,38 @@ def extract_citations(text: str) -> tuple[list[CitationResult], list[str]]:
     return results, warnings
 
 
+def validate_upload_limits(
+    files: list[UploadFile],
+    max_files: int,
+    max_file_size_mb: int,
+) -> str | None:
+    if len(files) > max_files:
+        return f"Too many files uploaded. The limit is {max_files} file(s) per batch."
+    max_bytes = max_file_size_mb * 1024 * 1024
+    for file in files:
+        if file.size is not None and file.size > max_bytes:
+            size_mb = file.size / (1024 * 1024)
+            return (
+                f'"{file.filename}" is {size_mb:.1f} MB, which exceeds the '
+                f"{max_file_size_mb} MB file size limit."
+            )
+    return None
+
+
+def apply_citation_cap(
+    citations: list[CitationResult],
+    limit: int,
+) -> tuple[list[CitationResult], str | None]:
+    if len(citations) <= limit:
+        return citations, None
+    warning = (
+        f"This document contains {len(citations)} citations. "
+        f"Only the first {limit} were processed. "
+        "Consider splitting the document into smaller sections."
+    )
+    return citations[:limit], warning
+
+
 def resolve_id_citations(citations: list[CitationResult]) -> list[CitationResult]:
     last_full_citation: CitationResult | None = None
 
@@ -110,6 +142,9 @@ def resolve_id_citations(citations: list[CitationResult]) -> list[CitationResult
 async def collect_sources(
     pasted_text: str | None,
     uploaded_files: list[UploadFile] | None,
+    *,
+    max_files: int = 10,
+    max_file_size_mb: int = 50,
 ) -> tuple[list[SourceInput], list[str], str | None]:
     sources: list[SourceInput] = []
     warnings: list[str] = []
@@ -125,6 +160,10 @@ async def collect_sources(
 
     if not valid_files:
         return [], warnings, "Please provide pasted text or upload a .docx/.pdf file."
+
+    error = validate_upload_limits(valid_files, max_files, max_file_size_mb)
+    if error:
+        return [], warnings, error
 
     for file in valid_files:
         extension = Path(file.filename or "").suffix.lower()

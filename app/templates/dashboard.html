@@ -84,6 +84,11 @@
     ({{ group.source_type }})
   </h4>
 
+  {% if group.citation_cap_warning %}
+  <div class="citation-cap-warning warning-box">
+    <strong>Warning:</strong> {{ group.citation_cap_warning }}
+  </div>
+  {% endif %}
   <p><strong>Citations found:</strong> {{ group.citation_count }}</p>
   {% if group.run_id %}
   <p class="export-links">
