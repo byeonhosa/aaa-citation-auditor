@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 class VerificationResponse:
     status: str
     detail: str
+    candidate_cluster_ids: list[int] | None = None
+    candidate_metadata: list[dict] | None = None
 
 
 class CitationVerifier(Protocol):
@@ -101,7 +103,30 @@ def map_courtlistener_result(result: dict[str, Any]) -> VerificationResponse:
             if error_message
             else "Multiple possible CourtListener matches."
         )
-        return VerificationResponse(status="AMBIGUOUS", detail=detail)
+        candidate_cluster_ids: list[int] = []
+        candidate_metadata: list[dict] = []
+        for cluster in clusters:
+            if not isinstance(cluster, dict):
+                continue
+            cid = cluster.get("id")
+            if isinstance(cid, int):
+                candidate_cluster_ids.append(cid)
+                candidate_metadata.append(
+                    {
+                        "cluster_id": cid,
+                        "case_name": cluster.get("case_name")
+                        or cluster.get("case_name_short")
+                        or "",
+                        "court": cluster.get("court_id") or "",
+                        "date_filed": cluster.get("date_filed") or "",
+                    }
+                )
+        return VerificationResponse(
+            status="AMBIGUOUS",
+            detail=detail,
+            candidate_cluster_ids=candidate_cluster_ids or None,
+            candidate_metadata=candidate_metadata or None,
+        )
 
     if status_code == 400:
         detail = (
@@ -335,6 +360,8 @@ def _verify_single(
 
         citation.verification_status = result.status
         citation.verification_detail = result.detail
+        citation.candidate_cluster_ids = result.candidate_cluster_ids
+        citation.candidate_metadata = result.candidate_metadata
 
 
 def _verify_batched(
@@ -370,11 +397,15 @@ def _verify_batched(
                     continue
                 citation.verification_status = result.status
                 citation.verification_detail = result.detail
+                citation.candidate_cluster_ids = result.candidate_cluster_ids
+                citation.candidate_metadata = result.candidate_metadata
             continue
 
         for citation, result in zip(batch, results, strict=False):
             citation.verification_status = result.status
             citation.verification_detail = result.detail
+            citation.candidate_cluster_ids = result.candidate_cluster_ids
+            citation.candidate_metadata = result.candidate_metadata
 
 
 def verify_citations(

@@ -1960,3 +1960,461 @@ def test_log_level_default_is_info() -> None:
 
     s = Settings(_env_file=None)
     assert s.log_level == "INFO"
+
+
+# ── Disambiguation Phase A tests ───────────────────────────────────
+
+
+def test_map_courtlistener_result_status_300_extracts_candidate_metadata() -> None:
+    """status=300 with cluster list should populate candidate_cluster_ids and candidate_metadata."""
+    payload_item = {
+        "status": 300,
+        "error_message": "Multiple citations found",
+        "clusters": [
+            {
+                "id": 42,
+                "case_name": "Brown v. Board",
+                "court_id": "scotus",
+                "date_filed": "1954-05-17",
+            },
+            {
+                "id": 99,
+                "case_name": "Plessy v. Ferguson",
+                "court_id": "scotus",
+                "date_filed": "1896-05-18",
+            },
+        ],
+    }
+
+    result = map_courtlistener_result(payload_item)
+
+    assert result.status == "AMBIGUOUS"
+    assert result.candidate_cluster_ids == [42, 99]
+    assert result.candidate_metadata is not None
+    assert len(result.candidate_metadata) == 2
+    assert result.candidate_metadata[0]["cluster_id"] == 42
+    assert result.candidate_metadata[0]["case_name"] == "Brown v. Board"
+    assert result.candidate_metadata[1]["cluster_id"] == 99
+
+
+def test_map_courtlistener_result_status_300_no_clusters_returns_none_candidates() -> None:
+    """status=300 with empty clusters list should return None candidates."""
+    payload_item = {
+        "status": 300,
+        "error_message": "Multiple matches",
+        "clusters": [],
+    }
+
+    result = map_courtlistener_result(payload_item)
+
+    assert result.status == "AMBIGUOUS"
+    assert result.candidate_cluster_ids is None
+    assert result.candidate_metadata is None
+
+
+def test_verify_citations_ambiguous_propagates_candidate_metadata() -> None:
+    """AMBIGUOUS verifier response should propagate candidate fields to citation."""
+
+    class StubAmbiguousVerifier:
+        def verify(self, citation: CitationResult) -> VerificationResponse:
+            return VerificationResponse(
+                status="AMBIGUOUS",
+                detail="Multiple matches.",
+                candidate_cluster_ids=[10, 20],
+                candidate_metadata=[
+                    {
+                        "cluster_id": 10,
+                        "case_name": "Case A",
+                        "court": "scotus",
+                        "date_filed": "2000-01-01",
+                    },
+                    {
+                        "cluster_id": 20,
+                        "case_name": "Case B",
+                        "court": "ca9",
+                        "date_filed": "2001-01-01",
+                    },
+                ],
+            )
+
+    citations = [
+        CitationResult(
+            raw_text="Smith v. Jones, 100 U.S. 200 (2000).", citation_type="FullCaseCitation"
+        )
+    ]
+
+    result = verify_citations(
+        citations,
+        courtlistener_token="token",
+        verification_base_url="https://example.test/verify",
+        verifier=StubAmbiguousVerifier(),
+    )
+
+    assert result[0].verification_status == "AMBIGUOUS"
+    assert result[0].candidate_cluster_ids == [10, 20]
+    assert result[0].candidate_metadata is not None
+    assert result[0].candidate_metadata[0]["cluster_id"] == 10
+
+
+def test_repository_saves_candidate_metadata_as_json() -> None:
+    """save_audit_run should JSON-serialize candidate_metadata and candidate_cluster_ids."""
+    import json
+
+    from aaa_db.repository import save_audit_run
+
+    citations = [
+        CitationResult(
+            raw_text="Smith v. Jones, 100 U.S. 200 (2000).",
+            citation_type="FullCaseCitation",
+            verification_status="AMBIGUOUS",
+            verification_detail="Multiple matches.",
+            candidate_cluster_ids=[10, 20],
+            candidate_metadata=[
+                {
+                    "cluster_id": 10,
+                    "case_name": "Case A",
+                    "court": "scotus",
+                    "date_filed": "2000-01-01",
+                },
+                {
+                    "cluster_id": 20,
+                    "case_name": "Case B",
+                    "court": "ca9",
+                    "date_filed": "2001-01-01",
+                },
+            ],
+        )
+    ]
+
+    with SessionLocal() as db:
+        run = save_audit_run(
+            db,
+            source_type="text",
+            source_name=None,
+            input_text="test",
+            warnings=[],
+            citations=citations,
+        )
+
+    with SessionLocal() as db:
+        row = db.query(CitationResultRecord).filter_by(audit_run_id=run.id).first()
+
+    assert row is not None
+    assert row.candidate_cluster_ids is not None
+    assert row.candidate_metadata is not None
+    parsed_ids = json.loads(row.candidate_cluster_ids)
+    parsed_meta = json.loads(row.candidate_metadata)
+    assert parsed_ids == [10, 20]
+    assert parsed_meta[0]["cluster_id"] == 10
+    assert parsed_meta[1]["case_name"] == "Case B"
+
+
+def test_resolve_citation_endpoint_marks_verified_and_redirects() -> None:
+    """POST /history/{run_id}/citations/{citation_id}/resolve should update status and redirect."""
+    import json
+
+    with SessionLocal() as db:
+        run = AuditRun(
+            source_type="text",
+            citation_count=1,
+            verified_count=0,
+            not_found_count=0,
+            ambiguous_count=1,
+            derived_count=0,
+            statute_count=0,
+            error_count=0,
+            unverified_no_token_count=0,
+        )
+        db.add(run)
+        db.flush()
+
+        citation_row = CitationResultRecord(
+            audit_run_id=run.id,
+            raw_text="Smith v. Jones, 100 U.S. 200 (2000).",
+            citation_type="FullCaseCitation",
+            verification_status="AMBIGUOUS",
+            verification_detail="Multiple matches.",
+            candidate_cluster_ids=json.dumps([10, 20]),
+            candidate_metadata=json.dumps(
+                [
+                    {
+                        "cluster_id": 10,
+                        "case_name": "Smith v. Jones (correct)",
+                        "court": "scotus",
+                        "date_filed": "2000-01-01",
+                    },
+                    {
+                        "cluster_id": 20,
+                        "case_name": "Smith v. Jones (wrong)",
+                        "court": "ca9",
+                        "date_filed": "2001-01-01",
+                    },
+                ]
+            ),
+        )
+        db.add(citation_row)
+        db.commit()
+        run_id = run.id
+        citation_id = citation_row.id
+
+    response = client.post(
+        f"/history/{run_id}/citations/{citation_id}/resolve",
+        data={"cluster_id": 10},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert f"/history/{run_id}" in response.headers["location"]
+
+    with SessionLocal() as db:
+        updated = db.get(CitationResultRecord, citation_id)
+
+    assert updated is not None
+    assert updated.verification_status == "VERIFIED"
+    assert updated.selected_cluster_id == 10
+    assert updated.resolution_method == "user"
+
+
+def test_resolve_citation_endpoint_404_on_wrong_run_id() -> None:
+    """Resolve endpoint should 404 when citation doesn't belong to the given run."""
+    import json
+
+    with SessionLocal() as db:
+        run_a = AuditRun(
+            source_type="text",
+            citation_count=1,
+            verified_count=0,
+            not_found_count=0,
+            ambiguous_count=1,
+            derived_count=0,
+            statute_count=0,
+            error_count=0,
+            unverified_no_token_count=0,
+        )
+        run_b = AuditRun(
+            source_type="text",
+            citation_count=0,
+            verified_count=0,
+            not_found_count=0,
+            ambiguous_count=0,
+            derived_count=0,
+            statute_count=0,
+            error_count=0,
+            unverified_no_token_count=0,
+        )
+        db.add(run_a)
+        db.add(run_b)
+        db.flush()
+
+        citation_row = CitationResultRecord(
+            audit_run_id=run_a.id,
+            raw_text="Smith v. Jones, 100 U.S. 200 (2000).",
+            citation_type="FullCaseCitation",
+            verification_status="AMBIGUOUS",
+            candidate_cluster_ids=json.dumps([10]),
+            candidate_metadata=json.dumps(
+                [{"cluster_id": 10, "case_name": "X", "court": "", "date_filed": ""}]
+            ),
+        )
+        db.add(citation_row)
+        db.commit()
+        run_b_id = run_b.id
+        citation_id = citation_row.id
+
+    response = client.post(
+        f"/history/{run_b_id}/citations/{citation_id}/resolve",
+        data={"cluster_id": 10},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 404
+
+
+def test_history_detail_shows_candidate_selection_ui_for_ambiguous() -> None:
+    """History detail page should show candidate selection form for AMBIGUOUS citations."""
+    import json
+
+    with SessionLocal() as db:
+        run = AuditRun(
+            source_type="text",
+            citation_count=1,
+            verified_count=0,
+            not_found_count=0,
+            ambiguous_count=1,
+            derived_count=0,
+            statute_count=0,
+            error_count=0,
+            unverified_no_token_count=0,
+        )
+        db.add(run)
+        db.flush()
+
+        citation_row = CitationResultRecord(
+            audit_run_id=run.id,
+            raw_text="Smith v. Jones, 100 U.S. 200 (2000).",
+            citation_type="FullCaseCitation",
+            verification_status="AMBIGUOUS",
+            verification_detail="Multiple matches.",
+            candidate_cluster_ids=json.dumps([10, 20]),
+            candidate_metadata=json.dumps(
+                [
+                    {
+                        "cluster_id": 10,
+                        "case_name": "Smith v. Jones (correct)",
+                        "court": "scotus",
+                        "date_filed": "2000-01-01",
+                    },
+                    {
+                        "cluster_id": 20,
+                        "case_name": "Smith v. Jones (wrong)",
+                        "court": "ca9",
+                        "date_filed": "2001-01-01",
+                    },
+                ]
+            ),
+        )
+        db.add(citation_row)
+        db.commit()
+        run_id = run.id
+
+    response = client.get(f"/history/{run_id}")
+
+    assert response.status_code == 200
+    assert "Select" in response.text
+    assert "Smith v. Jones (correct)" in response.text
+    assert "Smith v. Jones (wrong)" in response.text
+    assert "resolve" in response.text
+
+
+def test_history_detail_shows_resolution_info_after_resolve() -> None:
+    """History detail page should show resolution info after a citation is resolved."""
+    import json
+
+    with SessionLocal() as db:
+        run = AuditRun(
+            source_type="text",
+            citation_count=1,
+            verified_count=0,
+            not_found_count=0,
+            ambiguous_count=1,
+            derived_count=0,
+            statute_count=0,
+            error_count=0,
+            unverified_no_token_count=0,
+        )
+        db.add(run)
+        db.flush()
+
+        citation_row = CitationResultRecord(
+            audit_run_id=run.id,
+            raw_text="Smith v. Jones, 100 U.S. 200 (2000).",
+            citation_type="FullCaseCitation",
+            verification_status="AMBIGUOUS",
+            verification_detail="Multiple matches.",
+            candidate_cluster_ids=json.dumps([10, 20]),
+            candidate_metadata=json.dumps(
+                [
+                    {
+                        "cluster_id": 10,
+                        "case_name": "Smith v. Jones",
+                        "court": "scotus",
+                        "date_filed": "2000-01-01",
+                    },
+                ]
+            ),
+        )
+        db.add(citation_row)
+        db.commit()
+        run_id = run.id
+        citation_id = citation_row.id
+
+    client.post(
+        f"/history/{run_id}/citations/{citation_id}/resolve",
+        data={"cluster_id": 10},
+        follow_redirects=False,
+    )
+
+    response = client.get(f"/history/{run_id}")
+
+    assert response.status_code == 200
+    assert "user" in response.text
+    assert "10" in response.text
+
+
+def test_csv_export_includes_resolution_method_column() -> None:
+    """CSV export should include a resolution_method column."""
+    import json
+
+    with SessionLocal() as db:
+        run = AuditRun(
+            source_type="text",
+            citation_count=1,
+            verified_count=1,
+            not_found_count=0,
+            ambiguous_count=0,
+            derived_count=0,
+            statute_count=0,
+            error_count=0,
+            unverified_no_token_count=0,
+        )
+        db.add(run)
+        db.flush()
+
+        citation_row = CitationResultRecord(
+            audit_run_id=run.id,
+            raw_text="Smith v. Jones, 100 U.S. 200 (2000).",
+            citation_type="FullCaseCitation",
+            verification_status="VERIFIED",
+            resolution_method="user",
+            selected_cluster_id=10,
+            candidate_cluster_ids=json.dumps([10]),
+            candidate_metadata=json.dumps(
+                [
+                    {
+                        "cluster_id": 10,
+                        "case_name": "Smith v. Jones",
+                        "court": "scotus",
+                        "date_filed": "2000-01-01",
+                    }
+                ]
+            ),
+        )
+        db.add(citation_row)
+        db.commit()
+        run_id = run.id
+
+    response = client.get(f"/history/{run_id}/export?format=csv")
+
+    assert response.status_code == 200
+    assert "resolution_method" in response.text
+    assert "user" in response.text
+
+
+def test_dashboard_ambiguous_with_candidates_shows_history_link(monkeypatch) -> None:
+    """Dashboard should show link to history for AMBIGUOUS citations with candidates."""
+
+    def fake_verify(citations, **kwargs):  # noqa: ANN001, ANN003
+        citations[0].verification_status = "AMBIGUOUS"
+        citations[0].verification_detail = "Multiple matches."
+        citations[0].candidate_cluster_ids = [10, 20]
+        citations[0].candidate_metadata = [
+            {
+                "cluster_id": 10,
+                "case_name": "Case A",
+                "court": "scotus",
+                "date_filed": "2000-01-01",
+            },
+            {"cluster_id": 20, "case_name": "Case B", "court": "ca9", "date_filed": "2001-01-01"},
+        ]
+        return citations
+
+    monkeypatch.setattr("app.routes.pages.verify_citations", fake_verify)
+
+    response = client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."},
+    )
+
+    assert response.status_code == 200
+    assert "AMBIGUOUS" in response.text
+    assert "Go to history to select the correct case" in response.text

@@ -40,13 +40,20 @@ _aaa_session.SessionLocal = _TestSessionLocal
 # ── Per-test database isolation ────────────────────────────────────────────
 @pytest.fixture(autouse=True)
 def clean_db() -> None:
-    from aaa_db.models import AuditRun, Base, CitationResultRecord, TelemetryEvent
+    from aaa_db.models import (
+        AuditRun,
+        Base,
+        CitationResolutionCache,
+        CitationResultRecord,
+        TelemetryEvent,
+    )
 
     Base.metadata.create_all(bind=_TEST_ENGINE)
     with _TestSessionLocal() as db:
         db.query(CitationResultRecord).delete()
         db.query(AuditRun).delete()
         db.query(TelemetryEvent).delete()
+        db.query(CitationResolutionCache).delete()
         db.commit()
 
 

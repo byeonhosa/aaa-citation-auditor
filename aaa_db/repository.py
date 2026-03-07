@@ -1,10 +1,11 @@
+import json
 import logging
 from collections.abc import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from aaa_db.models import AuditRun, CitationResultRecord
+from aaa_db.models import AuditRun, CitationResolutionCache, CitationResultRecord
 from app.services.audit import CitationResult
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,12 @@ def save_audit_run(
                 verification_status=citation.verification_status,
                 verification_detail=citation.verification_detail,
                 snippet=citation.snippet,
+                candidate_cluster_ids=json.dumps(citation.candidate_cluster_ids)
+                if citation.candidate_cluster_ids
+                else None,
+                candidate_metadata=json.dumps(citation.candidate_metadata)
+                if citation.candidate_metadata
+                else None,
             )
         )
 
@@ -100,3 +107,72 @@ def list_audit_runs(db: Session) -> list[AuditRun]:
 def get_audit_run(db: Session, run_id: int) -> AuditRun | None:
     stmt = select(AuditRun).options(selectinload(AuditRun.citations)).where(AuditRun.id == run_id)
     return db.scalar(stmt)
+
+
+def get_citation(db: Session, citation_id: int) -> CitationResultRecord | None:
+    return db.get(CitationResultRecord, citation_id)
+
+
+def resolve_citation(
+    db: Session,
+    citation: CitationResultRecord,
+    *,
+    selected_cluster_id: int,
+    resolution_method: str,
+    candidate_metadata: list[dict] | None,
+) -> CitationResultRecord:
+    """Mark a citation as user-resolved and update the resolution cache."""
+    citation.selected_cluster_id = selected_cluster_id
+    citation.resolution_method = resolution_method
+    citation.verification_status = "VERIFIED"
+
+    # Find matching cluster metadata for detail text
+    selected_meta: dict = {}
+    if candidate_metadata:
+        for meta in candidate_metadata:
+            if meta.get("cluster_id") == selected_cluster_id:
+                selected_meta = meta
+                break
+
+    case_name = selected_meta.get("case_name") or ""
+    court = selected_meta.get("court") or ""
+    date_filed = selected_meta.get("date_filed") or ""
+    detail_parts = [f"Resolved by user (cluster {selected_cluster_id})"]
+    if case_name:
+        detail_parts.append(case_name)
+    citation.verification_detail = ". ".join(detail_parts) + "."
+
+    # Upsert into resolution cache
+    normalized_cite = citation.normalized_text or citation.raw_text
+    cached = db.scalar(
+        select(CitationResolutionCache).where(
+            CitationResolutionCache.normalized_cite == normalized_cite
+        )
+    )
+    if cached:
+        cached.selected_cluster_id = selected_cluster_id
+        cached.case_name = case_name or None
+        cached.court = court or None
+        cached.date_filed = date_filed or None
+        cached.resolution_method = resolution_method
+    else:
+        db.add(
+            CitationResolutionCache(
+                normalized_cite=normalized_cite,
+                selected_cluster_id=selected_cluster_id,
+                case_name=case_name or None,
+                court=court or None,
+                date_filed=date_filed or None,
+                resolution_method=resolution_method,
+            )
+        )
+
+    db.commit()
+    db.refresh(citation)
+    logger.info(
+        "Citation resolved: id=%d, cluster_id=%d, method=%s",
+        citation.id,
+        selected_cluster_id,
+        resolution_method,
+    )
+    return citation
