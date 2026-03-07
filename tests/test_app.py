@@ -1708,3 +1708,184 @@ def test_no_urllib_in_production_code() -> None:
             source = f.read()
         assert "from urllib" not in source, f"{mod_name} still imports urllib"
         assert "import urllib" not in source, f"{mod_name} still imports urllib"
+
+
+# ── Guardrail tests ────────────────────────────────────────────────
+
+
+def test_validate_upload_limits_rejects_too_many_files() -> None:
+    from app.services.audit import validate_upload_limits
+
+    files = [SimpleNamespace(filename=f"doc{i}.pdf", size=100) for i in range(3)]
+    result = validate_upload_limits(files, max_files=2, max_file_size_mb=50)
+
+    assert result is not None
+    assert "2" in result
+
+
+def test_validate_upload_limits_rejects_oversized_file() -> None:
+    from app.services.audit import validate_upload_limits
+
+    files = [SimpleNamespace(filename="large.pdf", size=60 * 1024 * 1024)]
+    result = validate_upload_limits(files, max_files=10, max_file_size_mb=50)
+
+    assert result is not None
+    assert "large.pdf" in result
+    assert "50 MB" in result
+
+
+def test_validate_upload_limits_accepts_valid_files() -> None:
+    from app.services.audit import validate_upload_limits
+
+    files = [
+        SimpleNamespace(filename="a.pdf", size=1024),
+        SimpleNamespace(filename="b.pdf", size=2048),
+    ]
+    result = validate_upload_limits(files, max_files=10, max_file_size_mb=50)
+
+    assert result is None
+
+
+def test_validate_upload_limits_skips_size_check_when_size_is_none() -> None:
+    from app.services.audit import validate_upload_limits
+
+    files = [SimpleNamespace(filename="unknown.pdf", size=None)]
+    result = validate_upload_limits(files, max_files=10, max_file_size_mb=0)
+
+    assert result is None
+
+
+def test_apply_citation_cap_no_truncation_when_under_limit() -> None:
+    from app.services.audit import apply_citation_cap
+
+    citations = [
+        CitationResult(raw_text=f"Case{i}", citation_type="FullCaseCitation") for i in range(5)
+    ]
+    result, warning = apply_citation_cap(citations, limit=10)
+
+    assert len(result) == 5
+    assert warning is None
+
+
+def test_apply_citation_cap_truncates_and_returns_warning() -> None:
+    from app.services.audit import apply_citation_cap
+
+    citations = [
+        CitationResult(raw_text=f"Case{i}", citation_type="FullCaseCitation") for i in range(10)
+    ]
+    result, warning = apply_citation_cap(citations, limit=3)
+
+    assert len(result) == 3
+    assert result[0].raw_text == "Case0"
+    assert result[2].raw_text == "Case2"
+    assert warning is not None
+    assert "10 citations" in warning
+    assert "3" in warning
+
+
+def test_apply_citation_cap_exactly_at_limit_no_truncation() -> None:
+    from app.services.audit import apply_citation_cap
+
+    citations = [
+        CitationResult(raw_text=f"Case{i}", citation_type="FullCaseCitation") for i in range(5)
+    ]
+    result, warning = apply_citation_cap(citations, limit=5)
+
+    assert len(result) == 5
+    assert warning is None
+
+
+def test_post_audit_rejects_batch_exceeding_limit(monkeypatch) -> None:
+    monkeypatch.setattr("app.routes.pages.settings.max_files_per_batch", 2)
+
+    files = [
+        (
+            "uploaded_files",
+            (
+                f"doc{i}.docx",
+                _docx_bytes("Brown v. Board of Educ., 347 U.S. 483 (1954)."),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        )
+        for i in range(3)
+    ]
+
+    response = client.post("/audit", files=files)
+
+    assert response.status_code == 200
+    assert "Too many files" in response.text
+    assert "2" in response.text
+
+
+def test_post_audit_file_size_rejection(monkeypatch) -> None:
+    """validate_upload_limits returning an error surfaces as a validation message."""
+
+    def fake_validate(files, max_files, max_file_size_mb):  # noqa: ANN001
+        return '"oversized.pdf" is 60.0 MB, which exceeds the 50 MB file size limit.'
+
+    monkeypatch.setattr("app.services.audit.validate_upload_limits", fake_validate)
+
+    response = client.post(
+        "/audit",
+        files={"uploaded_files": ("oversized.pdf", b"content", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    assert "oversized.pdf" in response.text
+    assert "50 MB" in response.text
+
+
+def test_post_audit_file_rejection_shows_validation_message_not_results(monkeypatch) -> None:
+    """File rejection should show a validation message without any results section."""
+
+    def fake_validate(files, max_files, max_file_size_mb):  # noqa: ANN001
+        return "Too many files uploaded. The limit is 1 file(s) per batch."
+
+    monkeypatch.setattr("app.services.audit.validate_upload_limits", fake_validate)
+
+    response = client.post(
+        "/audit",
+        files={"uploaded_files": ("a.docx", b"content", "application/octet-stream")},
+    )
+
+    assert response.status_code == 200
+    assert "Too many files" in response.text
+    assert "Results summary" not in response.text
+
+
+def test_post_audit_citation_cap_warning_appears_in_results(monkeypatch) -> None:
+    """When citations are capped, a warning appears in the result group."""
+    monkeypatch.setattr("app.routes.pages.settings.max_citations_per_run", 1)
+
+    response = client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954). Id. at 486."},
+    )
+
+    assert response.status_code == 200
+    assert "Only the first 1 were processed" in response.text
+    assert "splitting the document" in response.text
+
+
+def test_post_audit_citation_cap_still_processes_retained_citations(monkeypatch) -> None:
+    """The first N citations are still verified when the cap kicks in."""
+    monkeypatch.setattr("app.routes.pages.settings.max_citations_per_run", 1)
+
+    response = client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954). Id. at 486."},
+    )
+
+    assert response.status_code == 200
+    assert "Results summary" in response.text
+    assert "Brown v. Board" in response.text
+
+
+def test_settings_guardrail_defaults() -> None:
+    """Guardrail settings have correct defaults."""
+    from app.settings import Settings
+
+    s = Settings(_env_file=None)
+    assert s.max_file_size_mb == 50
+    assert s.max_files_per_batch == 10
+    assert s.max_citations_per_run == 500

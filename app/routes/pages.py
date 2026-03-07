@@ -11,7 +11,12 @@ from aaa_db.repository import get_audit_run, list_audit_runs, save_audit_run
 from aaa_db.session import SessionLocal
 from aaa_db.telemetry_repository import get_or_create_install_id, record_telemetry_event
 from app.services.ai_risk_memo import generate_risk_memo, unavailable_memo
-from app.services.audit import collect_sources, extract_citations, resolve_id_citations
+from app.services.audit import (
+    apply_citation_cap,
+    collect_sources,
+    extract_citations,
+    resolve_id_citations,
+)
 from app.services.exporters import (
     export_csv_for_run,
     export_markdown_for_run,
@@ -185,7 +190,10 @@ async def run_audit(
     result_groups: list[dict[str, Any]] = []
 
     sources, collection_warnings, validation_message = await collect_sources(
-        pasted_text, uploaded_files
+        pasted_text,
+        uploaded_files,
+        max_files=settings.max_files_per_batch,
+        max_file_size_mb=settings.max_file_size_mb,
     )
     shared_warnings.extend(collection_warnings)
 
@@ -201,6 +209,9 @@ async def run_audit(
         started = perf_counter()
 
         citation_results, parsing_warnings = extract_citations(source.text)
+        citation_results, cap_warning = apply_citation_cap(
+            citation_results, settings.max_citations_per_run
+        )
         citation_results = resolve_id_citations(citation_results)
         citation_results = verify_citations(
             citation_results,
@@ -211,6 +222,8 @@ async def run_audit(
         )
 
         group_warnings = [*source.warnings, *parsing_warnings]
+        if cap_warning:
+            group_warnings.insert(0, cap_warning)
         verification_summary = summarize_verification_statuses(citation_results)
 
         with db_session() as db:
@@ -248,6 +261,7 @@ async def run_audit(
                 "verification_summary": verification_summary,
                 "citations": [citation_to_context(citation) for citation in citation_results],
                 "warning_messages": group_warnings,
+                "citation_cap_warning": cap_warning,
             }
         )
 

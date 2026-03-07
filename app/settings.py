@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4.1-mini"
     ai_request_timeout_seconds: int = 60
 
+    max_file_size_mb: int = 50
+    max_files_per_batch: int = 10
+    max_citations_per_run: int = 500
+
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
