@@ -19,10 +19,12 @@ class Settings(BaseSettings):
     courtlistener_timeout_seconds: int = 30
     batch_verification: bool = True
 
-    ai_memo_enabled: bool = False
+    ai_provider: str = "none"  # "none" | "openai" | "ollama"
     ai_memo_include_content: bool = False
     openai_api_key: str | None = None
     ai_memo_model: str = "gpt-4o-mini"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2"
     ai_request_timeout_seconds: int = 60
 
     max_file_size_mb: int = 50
