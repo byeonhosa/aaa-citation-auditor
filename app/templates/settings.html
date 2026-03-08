@@ -1,21 +1,21 @@
 {% extends "base.html" %}
 {% block content %}
-<section>
+<div class="card-title">
   <h2>Settings</h2>
-  <p>Configure your AAA Citation Auditor instance. Changes take effect on the next audit.</p>
-  {% if saved %}
-  <p class="success-message">Settings saved.</p>
-  {% endif %}
-</section>
+  <p style="color:var(--text-2);margin-top:0.25rem">Configure your AAA Citation Auditor instance. Changes take effect on the next audit.</p>
+</div>
+
+{% if saved %}
+<p class="success-message">Settings saved successfully.</p>
+{% endif %}
 
 <form method="post" action="/settings">
 
-  <section>
-    <h3>CourtListener Integration</h3>
-    <p>
-      CourtListener is used to verify citations against its database of published opinions.
-      Without an API token, citations will be marked <code>UNVERIFIED_NO_TOKEN</code>.
-    </p>
+  <div class="card">
+    <div class="card-title">
+      <h3>CourtListener Integration</h3>
+    </div>
+    <p style="color:var(--text-2);font-size:0.875rem">CourtListener is used to verify citations against its database of published opinions. Without an API token, citations will be marked <code>UNVERIFIED_NO_TOKEN</code>.</p>
 
     <label for="courtlistener_token">API Token</label>
     <input type="password" id="courtlistener_token" name="courtlistener_token"
@@ -32,13 +32,13 @@
     <label for="courtlistener_timeout_seconds">Request Timeout (seconds)</label>
     <input type="number" id="courtlistener_timeout_seconds" name="courtlistener_timeout_seconds"
            value="{{ ui.courtlistener_timeout_seconds }}" min="5" max="300">
-  </section>
+  </div>
 
-  <section>
-    <h3>AI Risk Memo</h3>
-    <p>
-      Generate an advisory risk memo after each audit. Requires an AI provider to be configured.
-    </p>
+  <div class="card">
+    <div class="card-title">
+      <h3>AI Risk Memo</h3>
+    </div>
+    <p style="color:var(--text-2);font-size:0.875rem">Generate an advisory risk memo after each audit. Requires an AI provider to be configured.</p>
 
     <label for="ai_provider">AI Provider</label>
     <select id="ai_provider" name="ai_provider">
@@ -82,11 +82,13 @@
              {% if ui.ai_memo_include_content in ("True", "true", "1", "yes") %}checked{% endif %}>
       Include citation content in AI memo prompt
     </label>
-  </section>
+  </div>
 
-  <section>
-    <h3>Guardrails</h3>
-    <p>Limits to prevent processing of excessively large inputs.</p>
+  <div class="card">
+    <div class="card-title">
+      <h3>Guardrails</h3>
+    </div>
+    <p style="color:var(--text-2);font-size:0.875rem">Limits to prevent processing of excessively large inputs.</p>
 
     <label for="max_file_size_mb">Max File Size (MB)</label>
     <input type="number" id="max_file_size_mb" name="max_file_size_mb"
@@ -99,10 +101,12 @@
     <label for="max_citations_per_run">Max Citations per Run</label>
     <input type="number" id="max_citations_per_run" name="max_citations_per_run"
            value="{{ ui.max_citations_per_run }}" min="1" max="5000">
-  </section>
+  </div>
 
-  <section>
-    <h3>Logging</h3>
+  <div class="card">
+    <div class="card-title">
+      <h3>Logging</h3>
+    </div>
 
     <label for="log_level">Log Level</label>
     <select id="log_level" name="log_level">
@@ -110,14 +114,18 @@
       <option value="{{ level }}" {% if ui.log_level == level %}selected{% endif %}>{{ level }}</option>
       {% endfor %}
     </select>
-  </section>
+  </div>
 
-  <button type="submit">Save settings</button>
+  <div>
+    <button type="submit">Save settings</button>
+  </div>
 </form>
 
-<section>
-  <h3>Resolution Cache</h3>
-  <p>
+<div class="card" style="margin-top:1.5rem">
+  <div class="card-title">
+    <h3>Resolution Cache</h3>
+  </div>
+  <p style="color:var(--text-2);font-size:0.875rem">
     The resolution cache stores past disambiguation choices (heuristic and user-selected) so
     citations can be resolved instantly on future audits without querying CourtListener again.
   </p>
@@ -128,9 +136,11 @@
   {% endif %}
   <form method="post" action="/settings/clear-cache"
         onsubmit="return confirm('Clear the entire resolution cache? All cached disambiguation choices will be removed and future audits will re-query CourtListener for those citations.');">
-    <button type="submit">Clear resolution cache</button>
+    <div>
+      <button type="submit" class="btn-danger">Clear resolution cache</button>
+    </div>
   </form>
-</section>
+</div>
 
 <script>
   const providerSelect = document.getElementById("ai_provider");

@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<section>
+<div class="error-page">
+  <div class="error-code">404</div>
   <h2>Page Not Found</h2>
-  <p>The page you requested could not be found.</p>
-  <p><a href="/">Return to Dashboard</a> · <a href="/history">View History</a></p>
-</section>
+  <p style="color:var(--text-2)">The page you requested could not be found.</p>
+  <p style="margin-top:1.5rem">
+    <a href="/">Return to Dashboard</a> &nbsp;·&nbsp; <a href="/history">View History</a>
+  </p>
+</div>
 {% endblock %}
