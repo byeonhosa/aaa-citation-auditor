@@ -32,6 +32,13 @@ from app.services.exporters import (
     export_markdown_for_run,
     export_print_html_context,
 )
+from app.services.settings_service import (
+    _SENSITIVE_KEYS,
+    _is_masked,
+    get_all_ui_settings,
+    load_effective_settings,
+    save_setting,
+)
 from app.services.verification import summarize_verification_statuses, verify_citations
 from app.settings import TEMPLATES_DIR, settings
 
@@ -150,24 +157,26 @@ def generate_ai_memo_for_group(
     verification_summary: dict[str, int],
     citations: list[dict[str, str | None]],
     warnings: list[str],
+    effective_settings=None,
 ):
+    eff = effective_settings or settings
     run_data = build_ai_memo_input(
         source_type=source_type,
         source_name=source_name,
         verification_summary=verification_summary,
         citations=citations,
         warnings=warnings,
-        include_content=settings.ai_memo_include_content,
+        include_content=eff.ai_memo_include_content,
     )
 
-    provider = build_provider(settings)
+    provider = build_provider(eff)
     try:
         return generate_risk_memo(
             run_data,
-            enabled=settings.ai_provider != "none",
-            api_key=settings.openai_api_key,
-            model=settings.ai_memo_model,
-            timeout_seconds=settings.ai_request_timeout_seconds,
+            enabled=eff.ai_provider != "none",
+            api_key=eff.openai_api_key,
+            model=eff.ai_memo_model,
+            timeout_seconds=eff.ai_request_timeout_seconds,
             provider=provider,
         )
     except Exception:
@@ -224,11 +233,14 @@ async def run_audit(
         valid_file_count,
     )
 
+    with db_session() as db:
+        eff = load_effective_settings(db)
+
     sources, collection_warnings, validation_message = await collect_sources(
         pasted_text,
         uploaded_files,
-        max_files=settings.max_files_per_batch,
-        max_file_size_mb=settings.max_file_size_mb,
+        max_files=eff.max_files_per_batch,
+        max_file_size_mb=eff.max_file_size_mb,
     )
     shared_warnings.extend(collection_warnings)
 
@@ -252,17 +264,17 @@ async def run_audit(
 
         citation_results, parsing_warnings = extract_citations(source.text)
         citation_results, cap_warning = apply_citation_cap(
-            citation_results, settings.max_citations_per_run
+            citation_results, eff.max_citations_per_run
         )
         citation_results = resolve_id_citations(citation_results)
         with db_session() as db:
             cache = lookup_resolution_cache(db)
         citation_results = verify_citations(
             citation_results,
-            courtlistener_token=settings.courtlistener_token,
-            verification_base_url=settings.verification_base_url,
-            courtlistener_timeout_seconds=settings.courtlistener_timeout_seconds,
-            batch_verification=settings.batch_verification,
+            courtlistener_token=eff.courtlistener_token,
+            verification_base_url=eff.verification_base_url,
+            courtlistener_timeout_seconds=eff.courtlistener_timeout_seconds,
+            batch_verification=eff.batch_verification,
             resolution_cache=cache,
         )
 
@@ -323,6 +335,7 @@ async def run_audit(
             verification_summary=result_groups[-1]["verification_summary"],
             citations=result_groups[-1]["citations"],
             warnings=group_warnings,
+            effective_settings=eff,
         )
 
     return render_dashboard(
@@ -362,12 +375,16 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
         citations = [citation_to_context(citation) for citation in run.citations]
         verification_summary = summarize_verification_statuses(run.citations)
 
+    with db_session() as db:
+        eff = load_effective_settings(db)
+
     ai_memo = generate_ai_memo_for_group(
         source_type=run_context["source_type"],
         source_name=run_context["source_name"],
         verification_summary=verification_summary,
         citations=citations,
         warnings=[run_context["warning_text"]] if run_context["warning_text"] else [],
+        effective_settings=eff,
     )
 
     _record_event_safely(event_type="history_detail_viewed")
@@ -460,24 +477,75 @@ def resolve_citation_route(
 
 
 @router.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request) -> HTMLResponse:
+def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
+    with db_session() as db:
+        ui = get_all_ui_settings(db)
     return templates.TemplateResponse(
         request=request,
         name="settings.html",
-        context={"title": "Settings"},
+        context={"title": "Settings", "ui": ui, "saved": saved},
     )
+
+
+# Keys accepted from the settings form (whitelist)
+_FORM_KEYS = [
+    "courtlistener_token",
+    "verification_base_url",
+    "courtlistener_timeout_seconds",
+    "ai_provider",
+    "openai_api_key",
+    "ai_memo_model",
+    "ai_request_timeout_seconds",
+    "ai_memo_include_content",
+    "ollama_base_url",
+    "ollama_model",
+    "max_file_size_mb",
+    "max_files_per_batch",
+    "max_citations_per_run",
+    "log_level",
+]
+
+
+@router.post("/settings", response_class=HTMLResponse)
+async def save_settings(request: Request) -> RedirectResponse:
+    form = await request.form()
+
+    with db_session() as db:
+        for key in _FORM_KEYS:
+            # Checkboxes are absent from form data when unchecked
+            if key == "ai_memo_include_content":
+                value = "true" if form.get(key) else "false"
+                save_setting(db, key, value)
+                continue
+
+            raw = str(form.get(key, "")).strip()
+
+            # Sensitive fields: if still masked, skip (don't overwrite)
+            if key in _SENSITIVE_KEYS and _is_masked(raw):
+                continue
+
+            # Store non-empty values; skip empty sensitive fields
+            if not raw and key in _SENSITIVE_KEYS:
+                continue
+
+            save_setting(db, key, raw or None)
+
+    logger.info("Settings saved via UI")
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 
 @router.post("/settings/clear-cache", response_class=HTMLResponse)
 def clear_cache(request: Request) -> HTMLResponse:
     with db_session() as db:
         count = clear_resolution_cache(db)
+        ui = get_all_ui_settings(db)
     logger.info("Resolution cache cleared via settings: %d entries removed", count)
     return templates.TemplateResponse(
         request=request,
         name="settings.html",
         context={
             "title": "Settings",
+            "ui": ui,
             "cache_cleared": True,
             "cache_cleared_count": count,
         },

@@ -2,8 +2,118 @@
 {% block content %}
 <section>
   <h2>Settings</h2>
-  <p>Local instance settings and integrations will be configurable here.</p>
+  <p>Configure your AAA Citation Auditor instance. Changes take effect on the next audit.</p>
+  {% if saved %}
+  <p class="success-message">Settings saved.</p>
+  {% endif %}
 </section>
+
+<form method="post" action="/settings">
+
+  <section>
+    <h3>CourtListener Integration</h3>
+    <p>
+      CourtListener is used to verify citations against its database of published opinions.
+      Without an API token, citations will be marked <code>UNVERIFIED_NO_TOKEN</code>.
+    </p>
+
+    <label for="courtlistener_token">API Token</label>
+    <input type="password" id="courtlistener_token" name="courtlistener_token"
+           value="{{ ui.courtlistener_token }}"
+           placeholder="Leave blank to keep existing token, or enter new token"
+           autocomplete="off">
+    <small>Leave as-is (showing ••••) to keep the current token unchanged.</small>
+
+    <label for="verification_base_url">Verification Base URL</label>
+    <input type="text" id="verification_base_url" name="verification_base_url"
+           value="{{ ui.verification_base_url }}"
+           placeholder="https://www.courtlistener.com/api/rest/v4/citation-lookup/">
+
+    <label for="courtlistener_timeout_seconds">Request Timeout (seconds)</label>
+    <input type="number" id="courtlistener_timeout_seconds" name="courtlistener_timeout_seconds"
+           value="{{ ui.courtlistener_timeout_seconds }}" min="5" max="300">
+  </section>
+
+  <section>
+    <h3>AI Risk Memo</h3>
+    <p>
+      Generate an advisory risk memo after each audit. Requires an AI provider to be configured.
+    </p>
+
+    <label for="ai_provider">AI Provider</label>
+    <select id="ai_provider" name="ai_provider">
+      <option value="none" {% if ui.ai_provider == "none" %}selected{% endif %}>None (disabled)</option>
+      <option value="openai" {% if ui.ai_provider == "openai" %}selected{% endif %}>OpenAI</option>
+      <option value="ollama" {% if ui.ai_provider == "ollama" %}selected{% endif %}>Ollama (local)</option>
+    </select>
+
+    <div id="openai-settings" style="display:none">
+      <label for="openai_api_key">OpenAI API Key</label>
+      <input type="password" id="openai_api_key" name="openai_api_key"
+             value="{{ ui.openai_api_key }}"
+             placeholder="sk-… (leave as-is to keep current key)"
+             autocomplete="off">
+      <small>Leave as-is (showing ••••) to keep the current key unchanged.</small>
+
+      <label for="ai_memo_model">Model</label>
+      <input type="text" id="ai_memo_model" name="ai_memo_model"
+             value="{{ ui.ai_memo_model }}"
+             placeholder="gpt-4o-mini">
+    </div>
+
+    <div id="ollama-settings" style="display:none">
+      <label for="ollama_base_url">Ollama Base URL</label>
+      <input type="text" id="ollama_base_url" name="ollama_base_url"
+             value="{{ ui.ollama_base_url }}"
+             placeholder="http://localhost:11434">
+
+      <label for="ollama_model">Ollama Model</label>
+      <input type="text" id="ollama_model" name="ollama_model"
+             value="{{ ui.ollama_model }}"
+             placeholder="llama3.2">
+    </div>
+
+    <label for="ai_request_timeout_seconds">AI Request Timeout (seconds)</label>
+    <input type="number" id="ai_request_timeout_seconds" name="ai_request_timeout_seconds"
+           value="{{ ui.ai_request_timeout_seconds }}" min="5" max="300">
+
+    <label>
+      <input type="checkbox" name="ai_memo_include_content"
+             {% if ui.ai_memo_include_content in ("True", "true", "1", "yes") %}checked{% endif %}>
+      Include citation content in AI memo prompt
+    </label>
+  </section>
+
+  <section>
+    <h3>Guardrails</h3>
+    <p>Limits to prevent processing of excessively large inputs.</p>
+
+    <label for="max_file_size_mb">Max File Size (MB)</label>
+    <input type="number" id="max_file_size_mb" name="max_file_size_mb"
+           value="{{ ui.max_file_size_mb }}" min="1" max="500">
+
+    <label for="max_files_per_batch">Max Files per Batch</label>
+    <input type="number" id="max_files_per_batch" name="max_files_per_batch"
+           value="{{ ui.max_files_per_batch }}" min="1" max="50">
+
+    <label for="max_citations_per_run">Max Citations per Run</label>
+    <input type="number" id="max_citations_per_run" name="max_citations_per_run"
+           value="{{ ui.max_citations_per_run }}" min="1" max="5000">
+  </section>
+
+  <section>
+    <h3>Logging</h3>
+
+    <label for="log_level">Log Level</label>
+    <select id="log_level" name="log_level">
+      {% for level in ["DEBUG", "INFO", "WARNING", "ERROR"] %}
+      <option value="{{ level }}" {% if ui.log_level == level %}selected{% endif %}>{{ level }}</option>
+      {% endfor %}
+    </select>
+  </section>
+
+  <button type="submit">Save settings</button>
+</form>
 
 <section>
   <h3>Resolution Cache</h3>
@@ -21,4 +131,19 @@
     <button type="submit">Clear resolution cache</button>
   </form>
 </section>
+
+<script>
+  const providerSelect = document.getElementById("ai_provider");
+  const openaiSection = document.getElementById("openai-settings");
+  const ollamaSection = document.getElementById("ollama-settings");
+
+  function updateProviderVisibility() {
+    const val = providerSelect.value;
+    openaiSection.style.display = val === "openai" ? "block" : "none";
+    ollamaSection.style.display = val === "ollama" ? "block" : "none";
+  }
+
+  providerSelect.addEventListener("change", updateProviderVisibility);
+  updateProviderVisibility();
+</script>
 {% endblock %}
