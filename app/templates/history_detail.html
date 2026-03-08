@@ -121,4 +121,15 @@
   <p>No citations saved for this run.</p>
   {% endif %}
 </section>
+<script>
+  document.querySelectorAll(".candidate-list form").forEach((form) => {
+    form.addEventListener("submit", () => {
+      const btn = form.querySelector("button[type='submit']");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Resolving…";
+      }
+    });
+  });
+</script>
 {% endblock %}

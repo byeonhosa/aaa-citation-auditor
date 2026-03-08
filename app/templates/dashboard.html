@@ -16,9 +16,14 @@
     </div>
     <ul id="selected-files" class="selected-files"></ul>
 
-    <button type="submit">Audit</button>
+    <button type="submit" id="audit-submit-btn">Audit</button>
   </form>
 </section>
+
+<div id="audit-loading" class="audit-loading" aria-live="polite" aria-label="Processing audit">
+  <div class="spinner" role="status"></div>
+  <p class="loading-message">Extracting and verifying citations…</p>
+</div>
 
 {% if validation_message %}
 <section>
@@ -182,6 +187,9 @@
   const selectedFiles = document.getElementById("selected-files");
   const statusFilter = document.getElementById("status-filter");
   const sourceFilter = document.getElementById("source-filter");
+  const auditForm = document.getElementById("audit-form");
+  const auditSubmitBtn = document.getElementById("audit-submit-btn");
+  const auditLoading = document.getElementById("audit-loading");
 
   function renderSelectedFiles(files) {
     selectedFiles.innerHTML = "";
@@ -242,5 +250,11 @@
 
   if (statusFilter) statusFilter.addEventListener("change", applyFilters);
   if (sourceFilter) sourceFilter.addEventListener("change", applyFilters);
+
+  auditForm.addEventListener("submit", () => {
+    auditSubmitBtn.disabled = true;
+    auditSubmitBtn.textContent = "Auditing…";
+    auditLoading.classList.add("visible");
+  });
 </script>
 {% endblock %}
