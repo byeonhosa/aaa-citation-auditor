@@ -5,17 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{ title }}</title>
     <style>
-      body { font-family: Arial, sans-serif; margin: 1rem 2rem; }
-      table { border-collapse: collapse; width: 100%; }
-      th, td { border: 1px solid #ddd; padding: 0.5rem; vertical-align: top; }
-      th { background: #f5f5f5; text-align: left; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+        color: #1e293b;
+        font-size: 13px;
+        line-height: 1.5;
+        margin: 1.5rem 2.5rem;
+      }
+      h1 { color: #1a3557; font-size: 1.25rem; margin: 0 0 0.5rem; }
+      p { margin: 0.25rem 0; }
+      table { border-collapse: collapse; margin-top: 1rem; width: 100%; }
+      th, td { border: 1px solid #e2e8f0; padding: 0.45rem 0.65rem; vertical-align: top; }
+      th { background: #f8fafc; color: #475569; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.03em; text-align: left; text-transform: uppercase; }
+      tr:nth-child(even) td { background: #f8fafc; }
+      .meta { color: #64748b; font-size: 0.85rem; margin-bottom: 1rem; }
+      @media print {
+        body { margin: 0.75rem; }
+        a { color: inherit; text-decoration: none; }
+      }
     </style>
   </head>
   <body>
-    <h1>AAA Export - Audit Run #{{ run.id }}</h1>
-    <p><strong>Created:</strong> {{ run.created_at }}</p>
-    <p><strong>Source:</strong> {{ run.source_name or 'pasted-text' }} ({{ run.source_type }})</p>
-    <p><strong>Citations:</strong> {{ run.citation_count }}</p>
+    <h1>AAA Export — Audit Run #{{ run.id }}</h1>
+    <div class="meta">
+      <p><strong>Created:</strong> {{ run.created_at }}</p>
+      <p><strong>Source:</strong> {{ run.source_name or 'pasted-text' }} ({{ run.source_type }})</p>
+      <p><strong>Total citations:</strong> {{ run.citation_count }}</p>
+    </div>
 
     <table>
       <thead>

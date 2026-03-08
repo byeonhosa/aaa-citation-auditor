@@ -1,30 +1,34 @@
 {% extends "base.html" %}
 {% block content %}
-<section>
+<div class="card-title">
   <h2>Audit History</h2>
+</div>
 
-  {% if runs %}
-  <ul>
-    {% for run in runs %}
-    <li class="history-item">
-      <p><strong>Run:</strong> <a href="/history/{{ run.id }}">#{{ run.id }}</a></p>
-      <p><strong>Created:</strong> {{ run.created_at }}</p>
-      <p><strong>Source:</strong> {{ run.source_type }}{% if run.source_name %} ({{ run.source_name }}){% endif %}</p>
-      <p><strong>Citations:</strong> {{ run.citation_count }}</p>
-      <div class="summary-grid">
-        <div class="summary-card"><div class="summary-status">VERIFIED</div><div class="summary-count">{{ run.verified_count }}</div></div>
-        <div class="summary-card"><div class="summary-status">NOT_FOUND</div><div class="summary-count">{{ run.not_found_count }}</div></div>
-        <div class="summary-card"><div class="summary-status">AMBIGUOUS</div><div class="summary-count">{{ run.ambiguous_count }}</div></div>
-        <div class="summary-card summary-card-derived"><div class="summary-status">DERIVED</div><div class="summary-count">{{ run.derived_count }}</div></div>
-        <div class="summary-card summary-card-statute"><div class="summary-status">STATUTE_DETECTED</div><div class="summary-count">{{ run.statute_count }}</div></div>
-        <div class="summary-card"><div class="summary-status">ERROR</div><div class="summary-count">{{ run.error_count }}</div></div>
-        <div class="summary-card"><div class="summary-status">UNVERIFIED_NO_TOKEN</div><div class="summary-count">{{ run.unverified_no_token_count }}</div></div>
+{% if runs %}
+{% for run in runs %}
+<div class="history-item">
+  <div class="history-item-header">
+    <div>
+      <h3><a href="/history/{{ run.id }}">Run #{{ run.id }}</a></h3>
+      <div class="run-meta">
+        <span>{{ run.created_at }}</span>
+        <span>{{ run.source_type }}{% if run.source_name %} — {{ run.source_name }}{% endif %}</span>
+        <span>{{ run.citation_count }} citation{{ "s" if run.citation_count != 1 else "" }}</span>
       </div>
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p>No audit runs have been saved yet.</p>
-  {% endif %}
-</section>
+    </div>
+  </div>
+  <div class="summary-grid">
+    <div class="summary-card"><div class="summary-status">VERIFIED</div><div class="summary-count">{{ run.verified_count }}</div></div>
+    <div class="summary-card"><div class="summary-status">NOT_FOUND</div><div class="summary-count">{{ run.not_found_count }}</div></div>
+    <div class="summary-card"><div class="summary-status">AMBIGUOUS</div><div class="summary-count">{{ run.ambiguous_count }}</div></div>
+    <div class="summary-card summary-card-derived"><div class="summary-status">DERIVED</div><div class="summary-count">{{ run.derived_count }}</div></div>
+    <div class="summary-card summary-card-statute"><div class="summary-status">STATUTE_DETECTED</div><div class="summary-count">{{ run.statute_count }}</div></div>
+    <div class="summary-card"><div class="summary-status">ERROR</div><div class="summary-count">{{ run.error_count }}</div></div>
+    <div class="summary-card"><div class="summary-status">UNVERIFIED_NO_TOKEN</div><div class="summary-count">{{ run.unverified_no_token_count }}</div></div>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<p class="empty-state">No audit runs have been saved yet. <a href="/">Run your first audit.</a></p>
+{% endif %}
 {% endblock %}

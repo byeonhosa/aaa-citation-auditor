@@ -1,24 +1,30 @@
 {% extends "base.html" %}
 {% block content %}
-<section>
-  <h2>Audit Dashboard</h2>
+<div class="card">
+  <div class="card-title">
+    <h2>Audit Dashboard</h2>
+  </div>
   <p>Paste text or upload one or more legal documents to extract and verify citations.</p>
 
   <form action="/audit" method="post" enctype="multipart/form-data" id="audit-form">
-    <label for="pasted_text">Pasted Text</label>
+    <label for="pasted_text">Pasted text</label>
     <textarea id="pasted_text" name="pasted_text" rows="10" placeholder="Paste legal text here...">{{ pasted_text or "" }}</textarea>
-    <button type="button" id="clear-pasted-text">Clear text</button>
+    <div>
+      <button type="button" id="clear-pasted-text" class="btn-sm">Clear text</button>
+    </div>
 
-    <label for="uploaded_files">Upload .docx or .pdf (multiple supported)</label>
+    <label for="uploaded_files">Upload .docx or .pdf <small style="display:inline;font-weight:400;color:var(--text-muted)">(multiple supported)</small></label>
     <div id="drop-zone" class="drop-zone" tabindex="0">
       <p>Drag and drop files here, or click to browse.</p>
       <input id="uploaded_files" name="uploaded_files" type="file" multiple accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
     </div>
     <ul id="selected-files" class="selected-files"></ul>
 
-    <button type="submit" id="audit-submit-btn">Audit</button>
+    <div>
+      <button type="submit" id="audit-submit-btn">Audit</button>
+    </div>
   </form>
-</section>
+</div>
 
 <div id="audit-loading" class="audit-loading" aria-live="polite" aria-label="Processing audit">
   <div class="spinner" role="status"></div>
@@ -26,25 +32,27 @@
 </div>
 
 {% if validation_message %}
-<section>
+<div class="card">
   <p class="validation-message">{{ validation_message }}</p>
-</section>
+</div>
 {% endif %}
 
 {% if warning_messages %}
-<section class="warning-box">
+<div class="warning-box">
   <h3>Warnings</h3>
   <ul>
     {% for warning in warning_messages %}
     <li>{{ warning }}</li>
     {% endfor %}
   </ul>
-</section>
+</div>
 {% endif %}
 
 {% if result_groups %}
-<section>
-  <h3>Results summary</h3>
+<div class="card">
+  <div class="card-title">
+    <h3>Results summary</h3>
+  </div>
   <p><strong>Total citations found:</strong> {{ total_citations }}</p>
 
   <div class="result-filters">
@@ -75,10 +83,10 @@
     <li><a href="#result-{{ loop.index }}">{{ group.source_name or 'pasted-text' }} ({{ group.source_type }})</a></li>
     {% endfor %}
   </ul>
-</section>
+</div>
 
 {% for group in result_groups %}
-<section class="result-group" id="result-{{ loop.index }}" data-source="{{ group.source_name or 'pasted-text' }}">
+<div class="result-group" id="result-{{ loop.index }}" data-source="{{ group.source_name or 'pasted-text' }}">
   <h4>
     Results for
     {% if group.source_name %}
@@ -97,9 +105,9 @@
   <p><strong>Citations found:</strong> {{ group.citation_count }}</p>
   {% if group.run_id %}
   <p class="export-links">
-    Export: 
-    <a href="/history/{{ group.run_id }}/export?format=markdown">Markdown</a> |
-    <a href="/history/{{ group.run_id }}/export?format=csv">CSV</a> |
+    Export:
+    <a href="/history/{{ group.run_id }}/export?format=markdown">Markdown</a>
+    <a href="/history/{{ group.run_id }}/export?format=csv">CSV</a>
     <a href="/history/{{ group.run_id }}/export?format=html" target="_blank">Printable HTML</a>
   </p>
   {% endif %}
@@ -156,7 +164,7 @@
   {% endif %}
 
   {% if group.citations %}
-  <ul>
+  <ul style="list-style:none;padding:0;margin:0">
     {% for citation in group.citations %}
     <li class="citation-item" data-status="{{ citation.verification_status or 'UNKNOWN' }}">
       <p><strong>Raw text:</strong> {{ citation.raw_text }}</p>
@@ -164,7 +172,7 @@
       <p><strong>Normalized:</strong> {{ citation.normalized_text or "(not available)" }}</p>
       <p><strong>Resolved from:</strong> {{ citation.resolved_from or "(unresolved)" }}</p>
       <p><strong>Verification:</strong> <span class="verification-badge status-{{ (citation.verification_status or 'UNKNOWN') | lower }}">{{ citation.verification_status or "UNKNOWN" }}</span></p>
-      <p><strong>Verification detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
+      <p><strong>Detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
       <p class="snippet"><strong>Snippet:</strong> {{ citation.snippet or "(snippet unavailable)" }}</p>
       {% if citation.verification_status == "AMBIGUOUS" and citation.candidate_metadata and group.run_id %}
       <p class="disambiguate-hint">Multiple matches found. <a href="/history/{{ group.run_id }}">Go to history to select the correct case.</a></p>
@@ -175,7 +183,7 @@
   {% else %}
   <p class="empty-state">No citations were found for this source.</p>
   {% endif %}
-</section>
+</div>
 {% endfor %}
 {% endif %}
 

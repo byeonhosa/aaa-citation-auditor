@@ -3823,3 +3823,81 @@ def test_css_audit_loading_class_exists() -> None:
 
     assert response.status_code == 200
     assert ".audit-loading" in response.text
+
+
+# ── UI refresh tests ───────────────────────────────────────────────────────────
+
+
+def test_favicon_svg_is_served() -> None:
+    """The favicon SVG file is accessible at /static/favicon.svg."""
+    response = client.get("/static/favicon.svg")
+
+    assert response.status_code == 200
+    content_type = response.headers.get("content-type", "").lower()
+    assert "svg" in content_type or response.text.startswith("<svg")
+
+
+def test_base_template_references_favicon() -> None:
+    """Every page includes a <link> tag pointing to the SVG favicon."""
+    for route in ["/", "/history", "/settings"]:
+        response = client.get(route)
+        assert "favicon.svg" in response.text, f"favicon.svg not found on {route}"
+
+
+def test_nav_links_present_on_all_pages() -> None:
+    """Dashboard, History, and Settings nav links appear on every page."""
+    for route in ["/", "/history", "/settings"]:
+        response = client.get(route)
+        assert response.status_code == 200
+        assert 'href="/"' in response.text, f"Dashboard link missing on {route}"
+        assert 'href="/history"' in response.text, f"History link missing on {route}"
+        assert 'href="/settings"' in response.text, f"Settings link missing on {route}"
+
+
+def test_brand_name_in_header() -> None:
+    """The app brand name appears in the header on every page."""
+    for route in ["/", "/history", "/settings"]:
+        response = client.get(route)
+        assert "AAA Citation Auditor" in response.text, f"Brand not found on {route}"
+
+
+def test_footer_present_on_all_pages() -> None:
+    """A footer element is rendered on every page."""
+    for route in ["/", "/history", "/settings"]:
+        response = client.get(route)
+        assert "<footer>" in response.text, f"Footer missing on {route}"
+
+
+def test_404_page_has_error_code() -> None:
+    """The 404 page shows the numeric error code."""
+    response = client.get("/history/999999")
+
+    assert response.status_code == 404
+    assert "404" in response.text
+    assert "Page Not Found" in response.text
+
+
+def test_css_defines_primary_color_variable() -> None:
+    """styles.css defines the --primary CSS custom property used throughout the design."""
+    response = client.get("/static/styles.css")
+
+    assert response.status_code == 200
+    assert "--primary" in response.text
+    assert "#1a3557" in response.text
+
+
+def test_css_card_class_defined() -> None:
+    """styles.css defines the .card class used for page sections."""
+    response = client.get("/static/styles.css")
+
+    assert response.status_code == 200
+    assert ".card" in response.text
+
+
+def test_active_nav_js_in_base() -> None:
+    """Base template includes JS to mark the active nav link."""
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "active" in response.text
+    assert "classList.add" in response.text

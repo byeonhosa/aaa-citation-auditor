@@ -3,20 +3,44 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{{ title }} | AAA</title>
+    <title>{{ title }} | AAA Citation Auditor</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
     <header>
-      <h1>AAA (AI Agent Auditor)</h1>
-      <nav>
-        <a href="/">Dashboard</a>
-        <a href="/history">History</a>
-        <a href="/settings">Settings</a>
-      </nav>
+      <div class="header-inner">
+        <a href="/" class="brand">AAA Citation Auditor</a>
+        <nav>
+          <a href="/">Dashboard</a>
+          <a href="/history">History</a>
+          <a href="/settings">Settings</a>
+        </nav>
+      </div>
     </header>
     <main>
-      {% block content %}{% endblock %}
+      <div class="container">
+        {% block content %}{% endblock %}
+      </div>
     </main>
+    <footer>
+      <div class="footer-inner">
+        <span>AAA Citation Auditor</span>
+        <span>Citation verification for legal professionals</span>
+      </div>
+    </footer>
+    <script>
+      (function () {
+        var path = window.location.pathname;
+        document.querySelectorAll("header nav a").forEach(function (a) {
+          var href = a.getAttribute("href");
+          var isActive =
+            href === "/"
+              ? path === "/"
+              : path === href || path.startsWith(href + "/");
+          if (isActive) a.classList.add("active");
+        });
+      })();
+    </script>
   </body>
 </html>
