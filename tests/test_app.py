@@ -4109,3 +4109,370 @@ def test_changelog_exists_and_is_non_empty() -> None:
     content = changelog.read_text(encoding="utf-8")
     assert len(content) > 200, "docs/CHANGELOG.md appears to be empty or too short"
     assert "v0.9.0" in content, "docs/CHANGELOG.md must contain a version entry"
+
+
+# ── PR #33: Duplicate candidate deduplication ─────────────────────────────────
+
+
+def test_deduplicate_candidates_removes_identical_entries() -> None:
+    """_deduplicate_candidates collapses entries with same name+date into one."""
+    from app.services.verification import _deduplicate_candidates
+
+    candidates = [
+        {
+            "cluster_id": 1,
+            "case_name": "Smith v. Jones",
+            "date_filed": "2020-01-15",
+            "court": "scotus",
+        },
+        {
+            "cluster_id": 2,
+            "case_name": "Smith v. Jones",
+            "date_filed": "2020-01-15",
+            "court": "scotus",
+        },
+    ]
+    result, had_dupes = _deduplicate_candidates(candidates)
+    assert had_dupes is True
+    assert len(result) == 1
+    assert result[0]["cluster_id"] == 1
+
+
+def test_deduplicate_candidates_case_insensitive() -> None:
+    """_deduplicate_candidates normalises names before comparing."""
+    from app.services.verification import _deduplicate_candidates
+
+    candidates = [
+        {
+            "cluster_id": 10,
+            "case_name": "SMITH V. JONES",
+            "date_filed": "2020-01-15",
+            "court": "ca1",
+        },
+        {
+            "cluster_id": 11,
+            "case_name": "smith v. jones",
+            "date_filed": "2020-01-15",
+            "court": "ca1",
+        },
+    ]
+    result, had_dupes = _deduplicate_candidates(candidates)
+    assert had_dupes is True
+    assert len(result) == 1
+    assert result[0]["cluster_id"] == 10
+
+
+def test_deduplicate_candidates_keeps_genuinely_different() -> None:
+    """_deduplicate_candidates does not collapse distinct opinions."""
+    from app.services.verification import _deduplicate_candidates
+
+    candidates = [
+        {
+            "cluster_id": 100,
+            "case_name": "Smith v. Jones",
+            "date_filed": "2020-01-15",
+            "court": "scotus",
+        },
+        {
+            "cluster_id": 101,
+            "case_name": "Brown v. Board",
+            "date_filed": "1954-05-17",
+            "court": "scotus",
+        },
+    ]
+    result, had_dupes = _deduplicate_candidates(candidates)
+    assert had_dupes is False
+    assert len(result) == 2
+
+
+def test_ambiguous_with_duplicate_candidates_auto_resolves(monkeypatch) -> None:
+    """verify_citations auto-resolves AMBIGUOUS when dedup leaves exactly one candidate."""
+    from app.services.audit import CitationResult
+    from app.services.verification import VerificationResponse, verify_citations
+
+    # Simulate what map_courtlistener_result produces after deduplication:
+    # two duplicate cluster IDs collapse to one candidate entry.
+    class _DedupeVerifier:
+        def verify(self, citation: CitationResult) -> VerificationResponse:
+            return VerificationResponse(
+                status="AMBIGUOUS",
+                detail="Multiple matches.",
+                candidate_cluster_ids=[1],
+                candidate_metadata=[
+                    {
+                        "cluster_id": 1,
+                        "case_name": "Smith v. Jones",
+                        "date_filed": "2020-01-15",
+                        "court": "scotus",
+                    },
+                ],
+            )
+
+    citations = [
+        CitationResult(
+            raw_text="Smith v. Jones, 123 U.S. 456 (2020)", citation_type="FullCaseCitation"
+        )
+    ]
+    results = verify_citations(
+        citations,
+        courtlistener_token="tok",
+        verification_base_url="http://test",
+        verifier=_DedupeVerifier(),
+        search_fallback_enabled=False,
+    )
+    assert results[0].verification_status == "VERIFIED"
+    assert results[0].resolution_method == "dedup"
+    assert results[0].selected_cluster_id == 1
+
+
+def test_ambiguous_with_different_candidates_stays_ambiguous(monkeypatch) -> None:
+    """verify_citations leaves AMBIGUOUS when candidates are genuinely different."""
+    from app.services.audit import CitationResult
+    from app.services.verification import VerificationResponse, verify_citations
+
+    class _TwoResultVerifier:
+        def verify(self, citation: CitationResult) -> VerificationResponse:
+            return VerificationResponse(
+                status="AMBIGUOUS",
+                detail="Multiple matches.",
+                candidate_cluster_ids=[10, 20],
+                candidate_metadata=[
+                    {
+                        "cluster_id": 10,
+                        "case_name": "Smith v. Jones",
+                        "date_filed": "2020-01-15",
+                        "court": "scotus",
+                    },
+                    {
+                        "cluster_id": 20,
+                        "case_name": "Brown v. Board",
+                        "date_filed": "1954-05-17",
+                        "court": "scotus",
+                    },
+                ],
+            )
+
+    citations = [CitationResult(raw_text="123 U.S. 456", citation_type="FullCaseCitation")]
+    results = verify_citations(
+        citations,
+        courtlistener_token="tok",
+        verification_base_url="http://test",
+        verifier=_TwoResultVerifier(),
+        search_fallback_enabled=False,
+    )
+    assert results[0].verification_status == "AMBIGUOUS"
+
+
+# ── PR #33: Search fallback ───────────────────────────────────────────────────
+
+
+def test_search_fallback_resolves_not_found_single_result(monkeypatch) -> None:
+    """verify_citations resolves NOT_FOUND via search fallback when one result returned."""
+    from app.services.audit import CitationResult
+    from app.services.verification import VerificationResponse, verify_citations
+
+    class _NotFoundVerifier:
+        def verify(self, citation: CitationResult) -> VerificationResponse:
+            return VerificationResponse(status="NOT_FOUND", detail="Not found.")
+
+    def fake_search_fallback(citation, *, token, search_url, timeout_seconds):
+        return VerificationResponse(
+            status="VERIFIED",
+            detail="Resolved via search fallback (cluster 999). Smith v. Jones.",
+            candidate_cluster_ids=[999],
+            candidate_metadata=[
+                {
+                    "cluster_id": 999,
+                    "case_name": "Smith v. Jones",
+                    "date_filed": "2020-01-15",
+                    "court": "ca1",
+                }
+            ],
+        )
+
+    monkeypatch.setattr("app.services.search_fallback.try_search_fallback", fake_search_fallback)
+
+    citations = [
+        CitationResult(
+            raw_text="2020 WL 1234567",
+            citation_type="FullCaseCitation",
+            snippet="Smith v. Jones, 2020 WL 1234567 (1st Cir. 2020)",
+        )
+    ]
+    results = verify_citations(
+        citations,
+        courtlistener_token="tok",
+        verification_base_url="http://test",
+        verifier=_NotFoundVerifier(),
+        search_fallback_enabled=True,
+    )
+    assert results[0].verification_status == "VERIFIED"
+    assert results[0].resolution_method == "search_fallback"
+    assert results[0].selected_cluster_id == 999
+
+
+def test_search_fallback_no_results_returns_not_found(monkeypatch) -> None:
+    """verify_citations keeps NOT_FOUND when search fallback finds nothing."""
+    from app.services.audit import CitationResult
+    from app.services.verification import VerificationResponse, verify_citations
+
+    class _NotFoundVerifier:
+        def verify(self, citation: CitationResult) -> VerificationResponse:
+            return VerificationResponse(status="NOT_FOUND", detail="Not found.")
+
+    def fake_search_fallback(citation, *, token, search_url, timeout_seconds):
+        return None
+
+    monkeypatch.setattr("app.services.search_fallback.try_search_fallback", fake_search_fallback)
+
+    citations = [CitationResult(raw_text="2020 WL 9999999", citation_type="FullCaseCitation")]
+    results = verify_citations(
+        citations,
+        courtlistener_token="tok",
+        verification_base_url="http://test",
+        verifier=_NotFoundVerifier(),
+        search_fallback_enabled=True,
+    )
+    assert results[0].verification_status == "NOT_FOUND"
+
+
+def test_search_fallback_disabled_skips_search(monkeypatch) -> None:
+    """verify_citations does not call search fallback when search_fallback_enabled=False."""
+    from app.services.audit import CitationResult
+    from app.services.verification import VerificationResponse, verify_citations
+
+    class _NotFoundVerifier:
+        def verify(self, citation: CitationResult) -> VerificationResponse:
+            return VerificationResponse(status="NOT_FOUND", detail="Not found.")
+
+    fallback_called = []
+
+    def fake_search_fallback(citation, *, token, search_url, timeout_seconds):
+        fallback_called.append(True)
+        return None
+
+    monkeypatch.setattr("app.services.search_fallback.try_search_fallback", fake_search_fallback)
+
+    citations = [CitationResult(raw_text="2020 WL 9999999", citation_type="FullCaseCitation")]
+    results = verify_citations(
+        citations,
+        courtlistener_token="tok",
+        verification_base_url="http://test",
+        verifier=_NotFoundVerifier(),
+        search_fallback_enabled=False,
+    )
+    assert results[0].verification_status == "NOT_FOUND"
+    assert not fallback_called, "search fallback must not be called when disabled"
+
+
+def test_search_fallback_multiple_results_returns_ambiguous(monkeypatch) -> None:
+    """verify_citations surfaces AMBIGUOUS when search fallback finds multiple matches."""
+    from app.services.audit import CitationResult
+    from app.services.verification import VerificationResponse, verify_citations
+
+    class _NotFoundVerifier:
+        def verify(self, citation: CitationResult) -> VerificationResponse:
+            return VerificationResponse(status="NOT_FOUND", detail="Not found.")
+
+    def fake_search_fallback(citation, *, token, search_url, timeout_seconds):
+        return VerificationResponse(
+            status="AMBIGUOUS",
+            detail="Search found 2 possible matches.",
+            candidate_cluster_ids=[101, 202],
+            candidate_metadata=[
+                {
+                    "cluster_id": 101,
+                    "case_name": "Alpha v. Beta",
+                    "date_filed": "2019-03-01",
+                    "court": "ca2",
+                },
+                {
+                    "cluster_id": 202,
+                    "case_name": "Alpha v. Beta",
+                    "date_filed": "2020-07-15",
+                    "court": "ca2",
+                },
+            ],
+        )
+
+    monkeypatch.setattr("app.services.search_fallback.try_search_fallback", fake_search_fallback)
+
+    citations = [
+        CitationResult(raw_text="Alpha v. Beta, 2019 LEXIS 123", citation_type="FullCaseCitation")
+    ]
+    results = verify_citations(
+        citations,
+        courtlistener_token="tok",
+        verification_base_url="http://test",
+        verifier=_NotFoundVerifier(),
+        search_fallback_enabled=True,
+    )
+    assert results[0].verification_status == "AMBIGUOUS"
+    assert results[0].candidate_cluster_ids == [101, 202]
+
+
+# ── PR #33: State statute detection ──────────────────────────────────────────
+
+
+def test_state_statute_mrs_format_detected() -> None:
+    """extract_citations detects '20-A M.R.S. § 1001(20)' that eyecite may miss."""
+    from app.services.audit import extract_citations
+
+    text = "Pursuant to 20-A M.R.S. § 1001(20), the board shall adopt policies."
+    results, warnings = extract_citations(text)
+    raw_texts = [r.raw_text for r in results]
+    mrs_hits = [r for r in raw_texts if "M.R.S." in r and "1001" in r]
+    assert mrs_hits, f"Expected M.R.S. section 1001 citation; got {raw_texts}"
+
+
+def test_state_statute_mrs_verified_as_statute_detected() -> None:
+    """An M.R.S. citation should be classified as FullLawCitation and receive STATUTE_DETECTED."""
+    from app.services.audit import extract_citations
+    from app.services.verification import verify_citations
+
+    text = "Under 20-A M.R.S. § 4502(5), attendance is required."
+    citations, _ = extract_citations(text)
+    mrs_citations = [
+        c for c in citations if "M.R.S." in c.raw_text and c.citation_type == "FullLawCitation"
+    ]
+    assert mrs_citations, "M.R.S. citation must be classified as FullLawCitation"
+
+    results = verify_citations(
+        mrs_citations,
+        courtlistener_token=None,
+        verification_base_url="http://test",
+    )
+    assert results[0].verification_status == "STATUTE_DETECTED"
+
+
+def test_state_statute_rev_stat_format_detected() -> None:
+    """extract_citations detects 'Rev. Stat. § 123' descriptive form."""
+    from app.services.audit import extract_citations
+
+    text = "As provided in Rev. Stat. § 123, the penalty shall apply."
+    results, _ = extract_citations(text)
+    raw_texts = [r.raw_text for r in results]
+    hits = [t for t in raw_texts if "Rev." in t and "123" in t]
+    assert hits, f"Expected Rev. Stat. citation; got {raw_texts}"
+
+
+def test_federal_statute_not_duplicated_by_post_processing() -> None:
+    """extract_citations does not duplicate a FullLawCitation that eyecite already found."""
+    from app.services.audit import extract_citations
+
+    # 42 U.S.C. § 1983 is a standard federal statute eyecite handles natively
+    text = "Claims under 42 U.S.C. § 1983 are subject to state statutes of limitation."
+    results, _ = extract_citations(text)
+    usc_hits = [r for r in results if "1983" in r.raw_text]
+    assert len(usc_hits) == 1, f"Expected exactly one 42 U.S.C. § 1983 citation; got {usc_hits}"
+
+
+# ── PR #33: Settings page includes search fallback toggle ─────────────────────
+
+
+def test_settings_page_includes_search_fallback_toggle() -> None:
+    """The /settings page renders the search_fallback_enabled checkbox."""
+    response = client.get("/settings")
+    assert response.status_code == 200
+    assert "search_fallback_enabled" in response.text
+    assert "Search fallback" in response.text

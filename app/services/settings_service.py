@@ -23,6 +23,7 @@ _UI_KEYS: list[str] = [
     "courtlistener_token",
     "verification_base_url",
     "courtlistener_timeout_seconds",
+    "search_fallback_enabled",
     "ai_provider",
     "openai_api_key",
     "ai_memo_model",
@@ -167,6 +168,12 @@ class _EffectiveSettings:
         from app.settings import settings as _s
 
         return self._get_bool("batch_verification", _s.batch_verification)
+
+    @property
+    def search_fallback_enabled(self) -> bool:
+        from app.settings import settings as _s
+
+        return self._get_bool("search_fallback_enabled", _s.search_fallback_enabled)
 
     @property
     def ai_provider(self) -> str:

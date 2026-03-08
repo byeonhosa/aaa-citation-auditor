@@ -326,6 +326,7 @@ async def run_audit(
             courtlistener_timeout_seconds=eff.courtlistener_timeout_seconds,
             batch_verification=eff.batch_verification,
             resolution_cache=cache,
+            search_fallback_enabled=eff.search_fallback_enabled,
         )
 
         verification_summary = summarize_verification_statuses(citation_results)
@@ -541,6 +542,7 @@ _FORM_KEYS = [
     "courtlistener_token",
     "verification_base_url",
     "courtlistener_timeout_seconds",
+    "search_fallback_enabled",
     "ai_provider",
     "openai_api_key",
     "ai_memo_model",
@@ -554,6 +556,9 @@ _FORM_KEYS = [
     "log_level",
 ]
 
+# Form keys that are boolean checkboxes (absent = false when unchecked)
+_CHECKBOX_KEYS = {"ai_memo_include_content", "search_fallback_enabled"}
+
 
 @router.post("/settings", response_class=HTMLResponse)
 async def save_settings(request: Request) -> RedirectResponse:
@@ -562,7 +567,7 @@ async def save_settings(request: Request) -> RedirectResponse:
     with db_session() as db:
         for key in _FORM_KEYS:
             # Checkboxes are absent from form data when unchecked
-            if key == "ai_memo_include_content":
+            if key in _CHECKBOX_KEYS:
                 value = "true" if form.get(key) else "false"
                 save_setting(db, key, value)
                 continue

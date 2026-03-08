@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import re
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
@@ -9,6 +11,36 @@ import fitz
 from docx import Document
 from eyecite import get_citations
 from fastapi import UploadFile
+
+logger = logging.getLogger(__name__)
+
+# ── State statute patterns eyecite may miss ─────────────────────────────────
+#
+# Eyecite handles federal statutes (U.S.C.) and most state codes well, but
+# misses some formats where a numeric title prefix precedes the abbreviation
+# (e.g. "20-A M.R.S. § 1001(20)" — Maine Revised Statutes).
+#
+# This regex conservatively matches:
+#   • Prefixed abbreviations:  "20-A M.R.S. § 1001(20)", "16 V.S.A. § 833"
+#   • Unprefixed dotted abbrs: "M.R.S. § 1001", "R.S.Mo. § 162.670"
+#   • Descriptive forms:       "Rev. Stat. § 123", "Gen. Stat. § 456"
+_STATE_STATUTE_RE = re.compile(
+    r"""
+    (?:\b\d+(?:-[A-Z])?\s+)?          # optional numeric title prefix: "20-A " / "16 "
+    (?:
+        [A-Z][A-Za-z]{0,4}            # first abbreviation segment (M, V, R, …)
+        \.                            # dot separator
+        (?:[A-Za-z]{0,5}\.)+          # one or more further dotted segments (R.S., S., Mo., …)
+        |
+        (?:Rev|Gen|Comp|Ann)\.        # descriptive keyword
+        \s+(?:Stat|Code)\.            # "Stat." or "Code."
+        (?:\s+Ann\.)?                 # optional "Ann." suffix
+    )
+    \s*§\s*                           # section symbol
+    \d[\d.()\-]*                      # section number (e.g., 1001, 162.670, 1001(20))
+    """,
+    re.VERBOSE | re.UNICODE,
+)
 
 
 @dataclass
@@ -54,6 +86,35 @@ def _build_snippet(text: str, start: int, end: int, window: int = 80) -> str:
     return text[snippet_start:snippet_end].strip().replace("\n", " ")
 
 
+def _find_undetected_state_statutes(
+    text: str,
+    existing_results: list[CitationResult],
+) -> list[CitationResult]:
+    """Secondary regex pass for state statute formats eyecite may miss.
+
+    Only adds citations whose raw text is not already present in
+    *existing_results* as a FullLawCitation (case-insensitive).
+    """
+    existing_law_texts: set[str] = {
+        r.raw_text.strip().lower() for r in existing_results if r.citation_type == "FullLawCitation"
+    }
+    extra: list[CitationResult] = []
+    for m in _STATE_STATUTE_RE.finditer(text):
+        matched = m.group(0).strip()
+        if matched.lower() not in existing_law_texts:
+            snippet = _build_snippet(text, m.start(), m.end())
+            extra.append(
+                CitationResult(
+                    raw_text=matched,
+                    citation_type="FullLawCitation",
+                    snippet=snippet,
+                )
+            )
+            existing_law_texts.add(matched.lower())
+            logger.debug("State statute detected (post-extraction): %r", matched)
+    return extra
+
+
 def extract_citations(text: str) -> tuple[list[CitationResult], list[str]]:
     warnings: list[str] = []
     results: list[CitationResult] = []
@@ -87,6 +148,12 @@ def extract_citations(text: str) -> tuple[list[CitationResult], list[str]]:
                 snippet=snippet,
             )
         )
+
+    # Secondary pass: catch state statute formats eyecite may miss
+    extra = _find_undetected_state_statutes(text, results)
+    if extra:
+        logger.info("State statute post-extraction: found %d additional statute(s)", len(extra))
+        results.extend(extra)
 
     if not results:
         warnings.append("No citations were detected.")
