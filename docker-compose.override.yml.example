@@ -1,0 +1,30 @@
+# docker-compose.override.yml.example
+#
+# How to use this file:
+#   1. Copy it:  cp docker-compose.override.yml.example docker-compose.override.yml
+#   2. Fill in the values you want to enable.
+#   3. Run:      docker compose up -d
+#
+# Docker Compose automatically merges docker-compose.override.yml with
+# docker-compose.yml, so your secrets stay out of the main config file.
+# Add docker-compose.override.yml to .gitignore to keep secrets out of git.
+
+services:
+  aaa-app:
+    environment:
+      # CourtListener API token — get a free account at courtlistener.com
+      COURTLISTENER_TOKEN: "your-courtlistener-token-here"
+
+      # AI Risk Memo — choose "openai" or "ollama"
+      AI_PROVIDER: "openai"
+
+      # OpenAI API key (required when AI_PROVIDER=openai)
+      OPENAI_API_KEY: "sk-your-openai-key-here"
+
+      # Model to use for AI memos (gpt-4o-mini is fast and inexpensive)
+      AI_MEMO_MODEL: "gpt-4o-mini"
+
+      # ── Ollama (local free AI — enable the ollama service in docker-compose.yml first) ──
+      # AI_PROVIDER: "ollama"
+      # OLLAMA_BASE_URL: "http://ollama:11434"
+      # OLLAMA_MODEL: "llama3.2"

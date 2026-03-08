@@ -1,0 +1,50 @@
+services:
+  aaa-app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persistent SQLite database — survives container restarts and upgrades
+      - aaa-data:/data
+    environment:
+      # Database (SQLite in the persistent volume — no change needed)
+      DATABASE_URL: "sqlite:////data/aaa.db"
+
+      # Logging level: DEBUG | INFO | WARNING | ERROR
+      LOG_LEVEL: "INFO"
+
+      # ── CourtListener (free account at courtlistener.com) ───────────────────
+      # Without a token, citations are marked UNVERIFIED_NO_TOKEN (app still works).
+      # COURTLISTENER_TOKEN: "your-token-here"
+
+      # ── AI Risk Memo ────────────────────────────────────────────────────────
+      # Set to "openai" or "ollama" to enable post-audit advisory memos.
+      AI_PROVIDER: "none"
+
+      # OpenAI (requires AI_PROVIDER=openai and a paid API key)
+      # OPENAI_API_KEY: "sk-…"
+      # AI_MEMO_MODEL: "gpt-4o-mini"
+
+      # Ollama (requires AI_PROVIDER=ollama and the ollama service below enabled)
+      # OLLAMA_BASE_URL: "http://ollama:11434"
+      # OLLAMA_MODEL: "llama3.2"
+    restart: unless-stopped
+
+  # ── Optional: Ollama (free, local AI — no API key required) ─────────────────
+  # To enable:
+  #   1. Uncomment the ollama service below.
+  #   2. Set AI_PROVIDER: "ollama" and OLLAMA_BASE_URL: "http://ollama:11434" above.
+  #   3. Run: docker compose up -d
+  #   4. Pull a model: docker compose exec ollama ollama pull llama3.2
+  #
+  # ollama:
+  #   image: ollama/ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   restart: unless-stopped
+
+volumes:
+  aaa-data:
+  # ollama-data:
