@@ -163,7 +163,7 @@ async def collect_sources(
         return sources, warnings, None
 
     if not valid_files:
-        return [], warnings, "Please provide pasted text or upload a .docx/.pdf file."
+        return [], warnings, "Please enter text or upload a document to audit."
 
     error = validate_upload_limits(valid_files, max_files, max_file_size_mb)
     if error:
