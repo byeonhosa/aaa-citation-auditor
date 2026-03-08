@@ -165,7 +165,7 @@ def generate_ai_memo_for_group(
             run_data,
             enabled=settings.ai_memo_enabled,
             api_key=settings.openai_api_key,
-            model=settings.openai_model,
+            model=settings.ai_memo_model,
             timeout_seconds=settings.ai_request_timeout_seconds,
         )
     except Exception:
