@@ -19,7 +19,7 @@ from sqlalchemy.pool import StaticPool
 # Override .env values so tests never touch production DB or real APIs.
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["COURTLISTENER_TOKEN"] = ""  # disable real CourtListener calls
-os.environ["AI_MEMO_ENABLED"] = "false"  # disable real OpenAI calls
+os.environ["AI_PROVIDER"] = "none"  # disable real AI calls
 os.environ["OPENAI_API_KEY"] = ""
 
 # ── In-memory test engine (shared across all connections via StaticPool) ───

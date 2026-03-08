@@ -20,7 +20,7 @@ from aaa_db.repository import (
 )
 from aaa_db.session import SessionLocal
 from aaa_db.telemetry_repository import get_or_create_install_id, record_telemetry_event
-from app.services.ai_risk_memo import generate_risk_memo, unavailable_memo
+from app.services.ai_risk_memo import build_provider, generate_risk_memo, unavailable_memo
 from app.services.audit import (
     apply_citation_cap,
     collect_sources,
@@ -160,13 +160,15 @@ def generate_ai_memo_for_group(
         include_content=settings.ai_memo_include_content,
     )
 
+    provider = build_provider(settings)
     try:
         return generate_risk_memo(
             run_data,
-            enabled=settings.ai_memo_enabled,
+            enabled=settings.ai_provider != "none",
             api_key=settings.openai_api_key,
             model=settings.ai_memo_model,
             timeout_seconds=settings.ai_request_timeout_seconds,
+            provider=provider,
         )
     except Exception:
         return unavailable_memo("AI memo generation failed.")

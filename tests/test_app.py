@@ -963,7 +963,7 @@ def test_history_view_events_are_recorded() -> None:
 
 
 def test_dashboard_ai_memo_unavailable_without_key(monkeypatch) -> None:
-    monkeypatch.setattr("app.routes.pages.settings.ai_memo_enabled", True)
+    monkeypatch.setattr("app.routes.pages.settings.ai_provider", "openai")
     monkeypatch.setattr("app.routes.pages.settings.openai_api_key", None)
 
     response = client.post(
@@ -1900,6 +1900,229 @@ def test_ai_memo_model_setting_is_passed_to_provider(monkeypatch) -> None:
 
     s = Settings(_env_file=None)
     assert s.ai_memo_model == "gpt-4o-mini"
+
+
+# ── Ollama provider tests ─────────────────────────────────────────────────────
+
+
+def test_ollama_provider_returns_memo_on_success(monkeypatch) -> None:
+    """OllamaProvider should parse a well-formed response into a RiskMemo."""
+    monkeypatch.setattr(
+        "app.services.ai_risk_memo.openai.OpenAI",
+        lambda **kw: _make_fake_openai_client(
+            response_json={
+                "risk_level": "Low",
+                "summary": "All citations verified.",
+                "top_issues": [],
+                "recommended_actions": [],
+                "advisory_note": "Advisory only.",
+            }
+        ),
+    )
+
+    from app.services.ai_risk_memo import OllamaProvider
+
+    provider = OllamaProvider(
+        base_url="http://localhost:11434", model="llama3.2", timeout_seconds=30
+    )
+    memo = provider.generate_memo({"verification_summary": {"VERIFIED": 5}})
+
+    assert memo.available is True
+    assert memo.risk_level == "Low"
+    assert memo.generated_by == "Ollama llama3.2"
+
+
+def test_ollama_provider_connection_refused_returns_clear_message(monkeypatch) -> None:
+    """Connection refused to Ollama should return a start-Ollama instruction."""
+    import openai as _openai
+
+    monkeypatch.setattr(
+        "app.services.ai_risk_memo.openai.OpenAI",
+        lambda **kw: _make_fake_openai_client(side_effect=_openai.APIConnectionError(request=None)),
+    )
+
+    from app.services.ai_risk_memo import OllamaProvider
+
+    provider = OllamaProvider(
+        base_url="http://localhost:11434", model="llama3.2", timeout_seconds=30
+    )
+    memo = provider.generate_memo({})
+
+    assert memo.available is False
+    assert "ollama serve" in (memo.unavailable_reason or "").lower()
+
+
+def test_ollama_provider_model_not_found_returns_pull_instruction(monkeypatch) -> None:
+    """404 from Ollama should tell the user to pull the model."""
+    import httpx as _httpx
+    import openai as _openai
+
+    req = _httpx.Request("POST", "http://localhost:11434/v1/chat/completions")
+    resp = _httpx.Response(404, request=req, json={"error": "model not found"})
+
+    monkeypatch.setattr(
+        "app.services.ai_risk_memo.openai.OpenAI",
+        lambda **kw: _make_fake_openai_client(
+            side_effect=_openai.NotFoundError("model not found", response=resp, body={})
+        ),
+    )
+
+    from app.services.ai_risk_memo import OllamaProvider
+
+    provider = OllamaProvider(
+        base_url="http://localhost:11434", model="mistral", timeout_seconds=30
+    )
+    memo = provider.generate_memo({})
+
+    assert memo.available is False
+    assert "mistral" in (memo.unavailable_reason or "")
+    assert "ollama pull" in (memo.unavailable_reason or "").lower()
+
+
+def test_ollama_provider_timeout_returns_loading_message(monkeypatch) -> None:
+    """Timeout from Ollama should explain the model may be loading."""
+    import openai as _openai
+
+    monkeypatch.setattr(
+        "app.services.ai_risk_memo.openai.OpenAI",
+        lambda **kw: _make_fake_openai_client(side_effect=_openai.APITimeoutError(request=None)),
+    )
+
+    from app.services.ai_risk_memo import OllamaProvider
+
+    provider = OllamaProvider(
+        base_url="http://localhost:11434", model="llama3.2", timeout_seconds=30
+    )
+    memo = provider.generate_memo({})
+
+    assert memo.available is False
+    assert "timed out" in (memo.unavailable_reason or "").lower()
+    assert "loading" in (memo.unavailable_reason or "").lower()
+
+
+# ── Provider selection (build_provider) tests ─────────────────────────────────
+
+
+def test_build_provider_openai_returns_openai_provider() -> None:
+    """ai_provider='openai' with a key should return an OpenAIProvider."""
+    from types import SimpleNamespace
+
+    from app.services.ai_risk_memo import OpenAIProvider, build_provider
+
+    fake_settings = SimpleNamespace(
+        ai_provider="openai",
+        openai_api_key="sk-test",
+        ai_memo_model="gpt-4o-mini",
+        ollama_base_url="http://localhost:11434",
+        ollama_model="llama3.2",
+        ai_request_timeout_seconds=60,
+    )
+    provider = build_provider(fake_settings)
+    assert isinstance(provider, OpenAIProvider)
+
+
+def test_build_provider_ollama_returns_ollama_provider() -> None:
+    """ai_provider='ollama' should return an OllamaProvider."""
+    from types import SimpleNamespace
+
+    from app.services.ai_risk_memo import OllamaProvider, build_provider
+
+    fake_settings = SimpleNamespace(
+        ai_provider="ollama",
+        openai_api_key=None,
+        ai_memo_model="gpt-4o-mini",
+        ollama_base_url="http://localhost:11434",
+        ollama_model="llama3.2",
+        ai_request_timeout_seconds=60,
+    )
+    provider = build_provider(fake_settings)
+    assert isinstance(provider, OllamaProvider)
+
+
+def test_build_provider_none_returns_none() -> None:
+    """ai_provider='none' should return None (no memo generation)."""
+    from types import SimpleNamespace
+
+    from app.services.ai_risk_memo import build_provider
+
+    fake_settings = SimpleNamespace(
+        ai_provider="none",
+        openai_api_key=None,
+        ai_memo_model="gpt-4o-mini",
+        ollama_base_url="http://localhost:11434",
+        ollama_model="llama3.2",
+        ai_request_timeout_seconds=60,
+    )
+    provider = build_provider(fake_settings)
+    assert provider is None
+
+
+def test_build_provider_unknown_value_returns_none_and_warns(monkeypatch) -> None:
+    """Unknown ai_provider value should log a warning and return None."""
+    from types import SimpleNamespace
+
+    from app.services.ai_risk_memo import build_provider
+
+    fake_settings = SimpleNamespace(
+        ai_provider="anthropic",
+        openai_api_key=None,
+        ai_memo_model="gpt-4o-mini",
+        ollama_base_url="http://localhost:11434",
+        ollama_model="llama3.2",
+        ai_request_timeout_seconds=60,
+    )
+
+    warnings_logged: list[str] = []
+
+    class _CapturingLogger:
+        def warning(self, msg, *args, **kwargs):  # noqa: ANN001, ANN003
+            warnings_logged.append(msg % args if args else msg)
+
+        def info(self, *args, **kwargs): ...  # noqa: ANN002, ANN003
+        def error(self, *args, **kwargs): ...  # noqa: ANN002, ANN003
+        def debug(self, *args, **kwargs): ...  # noqa: ANN002, ANN003
+        def exception(self, *args, **kwargs): ...  # noqa: ANN002, ANN003
+
+    monkeypatch.setattr("app.services.ai_risk_memo.logger", _CapturingLogger())
+    provider = build_provider(fake_settings)
+
+    assert provider is None
+    assert any("anthropic" in w.lower() for w in warnings_logged)
+
+
+def test_build_provider_openai_without_key_returns_none() -> None:
+    """ai_provider='openai' with no API key should return None (generate_risk_memo handles it)."""
+    from types import SimpleNamespace
+
+    from app.services.ai_risk_memo import build_provider
+
+    fake_settings = SimpleNamespace(
+        ai_provider="openai",
+        openai_api_key=None,
+        ai_memo_model="gpt-4o-mini",
+        ollama_base_url="http://localhost:11434",
+        ollama_model="llama3.2",
+        ai_request_timeout_seconds=60,
+    )
+    provider = build_provider(fake_settings)
+    assert provider is None
+
+
+def test_settings_ai_provider_default() -> None:
+    """ai_provider should default to 'none'."""
+    from app.settings import Settings
+
+    s = Settings(_env_file=None)
+    assert s.ai_provider == "none"
+
+
+def test_settings_ollama_defaults() -> None:
+    """Ollama settings should have correct defaults."""
+    from app.settings import Settings
+
+    s = Settings(_env_file=None)
+    assert s.ollama_base_url == "http://localhost:11434"
+    assert s.ollama_model == "llama3.2"
 
 
 def test_no_urllib_in_production_code() -> None:
