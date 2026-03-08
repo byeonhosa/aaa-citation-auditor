@@ -3742,3 +3742,84 @@ def test_settings_clear_cache_still_renders_form() -> None:
     assert response.status_code == 200
     assert "CourtListener" in response.text
     assert "AI Risk Memo" in response.text
+
+
+# ── Loading indicator tests ────────────────────────────────────────────────────
+
+
+def test_dashboard_contains_loading_spinner_markup() -> None:
+    """Dashboard page includes the spinner element and loading container."""
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'id="audit-loading"' in response.text
+    assert 'class="spinner"' in response.text
+    assert "audit-loading" in response.text
+
+
+def test_dashboard_loading_message_text_present() -> None:
+    """Dashboard loading state shows a descriptive processing message."""
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "verifying citations" in response.text.lower()
+
+
+def test_dashboard_audit_button_has_id_for_js() -> None:
+    """Audit submit button has the id used by loading-state JavaScript."""
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'id="audit-submit-btn"' in response.text
+
+
+def test_dashboard_loading_js_disables_submit_on_submit() -> None:
+    """Dashboard JS block contains the submit handler that disables the button."""
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "auditForm.addEventListener" in response.text
+    assert 'auditSubmitBtn.disabled = true' in response.text
+    assert "auditLoading.classList.add" in response.text
+
+
+def test_dashboard_loading_overlay_hidden_by_default() -> None:
+    """The loading overlay starts hidden (no 'visible' class in initial HTML)."""
+    response = client.get("/")
+
+    assert response.status_code == 200
+    # The div is present but should NOT have the 'visible' class in the initial render
+    assert 'class="audit-loading"' in response.text
+    assert 'class="audit-loading visible"' not in response.text
+
+
+def test_history_detail_resolve_buttons_have_loading_js() -> None:
+    """History detail page includes JS to show 'Resolving…' on the resolve buttons."""
+    client.post("/audit", data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."})
+
+    with SessionLocal() as db:
+        run = db.query(AuditRun).first()
+
+    response = client.get(f"/history/{run.id}")
+
+    assert response.status_code == 200
+    assert "Resolving" in response.text
+    assert "candidate-list" in response.text or "candidate-list" in response.text
+
+
+def test_css_contains_spinner_keyframe_animation() -> None:
+    """The static CSS file defines the spinner keyframe animation."""
+    response = client.get("/static/styles.css")
+
+    assert response.status_code == 200
+    assert "aaa-spin" in response.text
+    assert "@keyframes" in response.text
+    assert ".spinner" in response.text
+
+
+def test_css_audit_loading_class_exists() -> None:
+    """The CSS file defines the .audit-loading class used by the spinner container."""
+    response = client.get("/static/styles.css")
+
+    assert response.status_code == 200
+    assert ".audit-loading" in response.text
