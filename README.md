@@ -2,6 +2,66 @@
 
 AAA is a local-first prototype for citation auditing aimed at small law firms, solo practitioners, nonprofits, and local government legal offices.
 
+## Docker quick-start (recommended)
+
+**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/byeonhosa/aaa-citation-auditor.git
+cd aaa-citation-auditor
+
+# 2. Start the app
+docker compose up -d
+
+# 3. Open your browser
+open http://localhost:8000
+```
+
+That's it. The app runs on port 8000 and your audit history is saved automatically across restarts.
+
+### Configure CourtListener (free — enables live citation verification)
+
+1. Create a free account at [courtlistener.com](https://www.courtlistener.com/) and copy your API token.
+2. Copy the override example and add your token:
+
+   ```bash
+   cp docker-compose.override.yml.example docker-compose.override.yml
+   # Edit docker-compose.override.yml and set COURTLISTENER_TOKEN
+   docker compose up -d
+   ```
+
+   Or use the in-app Settings page (no restart required).
+
+### Enable Ollama for free local AI memos
+
+Ollama runs AI models on your own machine — no API key or subscription needed.
+
+1. In `docker-compose.yml`, uncomment the `ollama` service block and the `ollama-data` volume.
+2. In the same file, set `AI_PROVIDER: "ollama"` and `OLLAMA_BASE_URL: "http://ollama:11434"` under `aaa-app`.
+3. Start everything and pull a model:
+
+   ```bash
+   docker compose up -d
+   docker compose exec ollama ollama pull llama3.2
+   ```
+
+### Access and back up your data
+
+All audit data is stored in a Docker volume named `aaa-data`. To back it up:
+
+```bash
+# Copy the database out of the volume to your current directory
+docker run --rm -v aaa-citation-auditor_aaa-data:/data -v $(pwd):/backup \
+  alpine cp /data/aaa.db /backup/aaa-backup.db
+```
+
+To reset all data (start fresh), remove the volume:
+
+```bash
+docker compose down -v
+```
+
 ## Current prototype scope (Phase 2)
 
 - Server-rendered dashboard with:
