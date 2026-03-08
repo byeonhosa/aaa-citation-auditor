@@ -104,3 +104,14 @@ class CitationResolutionCache(Base):
     __table_args__ = (
         Index("ix_citation_resolution_cache_normalized_cite", "normalized_cite", unique=True),
     )
+
+
+class AppSettings(Base):
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(128))
+    value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_app_settings_key", "key", unique=True),)

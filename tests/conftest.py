@@ -41,6 +41,7 @@ _aaa_session.SessionLocal = _TestSessionLocal
 @pytest.fixture(autouse=True)
 def clean_db() -> None:
     from aaa_db.models import (
+        AppSettings,
         AuditRun,
         Base,
         CitationResolutionCache,
@@ -54,6 +55,7 @@ def clean_db() -> None:
         db.query(AuditRun).delete()
         db.query(TelemetryEvent).delete()
         db.query(CitationResolutionCache).delete()
+        db.query(AppSettings).delete()
         db.commit()
 
 

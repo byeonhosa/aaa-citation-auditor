@@ -3543,3 +3543,202 @@ def test_history_detail_shows_cache_resolution_label() -> None:
     assert response.status_code == 200
     assert "Resolved from cache" in response.text
     assert "42" in response.text
+
+
+# ── Settings page tests ────────────────────────────────────────────────────────
+
+
+def test_settings_page_renders_form_sections() -> None:
+    """GET /settings renders the configuration form with all expected sections."""
+    response = client.get("/settings")
+
+    assert response.status_code == 200
+    assert "CourtListener" in response.text
+    assert "AI Risk Memo" in response.text
+    assert "Guardrails" in response.text
+    assert "Resolution Cache" in response.text
+    assert "Logging" in response.text
+
+
+def test_settings_page_shows_provider_select() -> None:
+    """Settings form has an AI provider select with none/openai/ollama options."""
+    response = client.get("/settings")
+
+    assert response.status_code == 200
+    assert 'name="ai_provider"' in response.text
+    assert "openai" in response.text
+    assert "ollama" in response.text
+
+
+def test_post_settings_saves_and_redirects() -> None:
+    """POST /settings saves settings and redirects to GET /settings."""
+    response = client.post(
+        "/settings",
+        data={"ai_provider": "none", "log_level": "DEBUG", "max_citations_per_run": "100"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "/settings" in response.headers["location"]
+
+
+def test_post_settings_saves_non_sensitive_value_to_db() -> None:
+    """Saved settings are persisted in app_settings and reflected on GET."""
+    client.post(
+        "/settings",
+        data={"max_citations_per_run": "42", "log_level": "WARNING"},
+    )
+
+    with SessionLocal() as db:
+        from app.services.settings_service import get_setting
+
+        val = get_setting(db, "max_citations_per_run")
+
+    assert val == "42"
+
+
+def test_post_settings_masked_sensitive_field_not_overwritten() -> None:
+    """Submitting a masked value (••••xxxx) for a sensitive field leaves the DB unchanged."""
+    from app.services.settings_service import get_setting, save_setting
+
+    # Pre-save a real token
+    with SessionLocal() as db:
+        save_setting(db, "courtlistener_token", "secret_real_token")
+
+    # Submit with masked placeholder
+    client.post(
+        "/settings",
+        data={"courtlistener_token": "••••oken"},
+    )
+
+    with SessionLocal() as db:
+        val = get_setting(db, "courtlistener_token")
+
+    assert val == "secret_real_token"
+
+
+def test_post_settings_new_sensitive_value_overwrites_db() -> None:
+    """Submitting an unmasked token replaces any existing value in the DB."""
+    from app.services.settings_service import get_setting
+
+    client.post(
+        "/settings",
+        data={"courtlistener_token": "brand_new_token_xyz"},
+    )
+
+    with SessionLocal() as db:
+        val = get_setting(db, "courtlistener_token")
+
+    assert val == "brand_new_token_xyz"
+
+
+def test_settings_page_shows_saved_confirmation_after_redirect() -> None:
+    """After saving, the redirect destination shows a 'Settings saved' message."""
+    response = client.post(
+        "/settings",
+        data={"log_level": "ERROR"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Settings saved" in response.text
+
+
+def test_load_effective_settings_returns_db_override() -> None:
+    """load_effective_settings should reflect values saved to the DB."""
+    from app.services.settings_service import load_effective_settings, save_setting
+
+    with SessionLocal() as db:
+        save_setting(db, "max_citations_per_run", "77")
+        eff = load_effective_settings(db)
+
+    assert eff.max_citations_per_run == 77
+
+
+def test_load_effective_settings_falls_back_to_pydantic_default() -> None:
+    """load_effective_settings uses pydantic defaults when no DB entry exists."""
+    from app.services.settings_service import load_effective_settings
+    from app.settings import settings as _pydantic_settings
+
+    with SessionLocal() as db:
+        eff = load_effective_settings(db)
+
+    assert eff.max_file_size_mb == _pydantic_settings.max_file_size_mb
+
+
+def test_get_all_ui_settings_masks_sensitive_fields() -> None:
+    """get_all_ui_settings masks API keys and tokens for display."""
+    from app.services.settings_service import get_all_ui_settings, save_setting
+
+    with SessionLocal() as db:
+        save_setting(db, "courtlistener_token", "abcdefgh1234")
+        ui = get_all_ui_settings(db)
+
+    assert ui["courtlistener_token"].startswith("••••")
+    assert "abcdefgh1234" not in ui["courtlistener_token"]
+
+
+def test_get_all_ui_settings_empty_sensitive_shows_blank() -> None:
+    """get_all_ui_settings returns empty string for unset sensitive fields."""
+    from app.services.settings_service import get_all_ui_settings
+
+    with SessionLocal() as db:
+        # No token saved — default is None in pydantic
+        ui = get_all_ui_settings(db)
+
+    # The test env has COURTLISTENER_TOKEN="" so default is empty
+    assert ui["courtlistener_token"] == ""
+
+
+def test_settings_page_prepopulates_saved_log_level() -> None:
+    """The saved log level is pre-selected in the rendered form."""
+    from app.services.settings_service import save_setting
+
+    with SessionLocal() as db:
+        save_setting(db, "log_level", "ERROR")
+
+    response = client.get("/settings")
+
+    assert response.status_code == 200
+    assert 'value="ERROR"' in response.text
+
+
+def test_audit_uses_effective_settings_from_db(monkeypatch) -> None:
+    """run_audit uses max_citations_per_run from DB when set."""
+    from app.services.settings_service import save_setting
+
+    # Save a very low cap to DB
+    with SessionLocal() as db:
+        save_setting(db, "max_citations_per_run", "1")
+
+    captured: dict = {}
+    original_cap = __import__(
+        "app.services.audit", fromlist=["apply_citation_cap"]
+    ).apply_citation_cap
+
+    def spy_cap(citations, cap):
+        captured["cap"] = cap
+        return original_cap(citations, cap)
+
+    monkeypatch.setattr("app.routes.pages.apply_citation_cap", spy_cap)
+
+    client.post(
+        "/audit",
+        data={
+            "pasted_text": (
+                "Brown v. Board of Educ., 347 U.S. 483 (1954). "
+                "Roe v. Wade, 410 U.S. 113 (1973)."
+            )
+        },
+    )
+
+    assert captured.get("cap") == 1
+
+
+def test_settings_clear_cache_still_renders_form() -> None:
+    """After clearing the cache, the settings page still shows the full form."""
+    response = client.post("/settings/clear-cache")
+
+    assert response.status_code == 200
+    assert "CourtListener" in response.text
+    assert "AI Risk Memo" in response.text
