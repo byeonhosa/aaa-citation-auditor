@@ -4083,3 +4083,29 @@ def test_is_courtlistener_unreachable_helper_false_with_partial_errors() -> None
         ),
     ]
     assert _is_courtlistener_unreachable(citations) is False
+
+
+# ── Documentation existence tests ─────────────────────────────────
+
+
+def test_user_guide_exists_and_is_non_empty() -> None:
+    """docs/USER_GUIDE.md must exist and contain substantive content."""
+    from pathlib import Path
+
+    guide = Path(__file__).parent.parent / "docs" / "USER_GUIDE.md"
+    assert guide.exists(), "docs/USER_GUIDE.md does not exist"
+    content = guide.read_text(encoding="utf-8")
+    assert len(content) > 500, "docs/USER_GUIDE.md appears to be empty or too short"
+    assert "VERIFIED" in content, "USER_GUIDE.md must explain the VERIFIED status"
+    assert "AMBIGUOUS" in content, "USER_GUIDE.md must explain the AMBIGUOUS status"
+
+
+def test_changelog_exists_and_is_non_empty() -> None:
+    """docs/CHANGELOG.md must exist and contain a version entry."""
+    from pathlib import Path
+
+    changelog = Path(__file__).parent.parent / "docs" / "CHANGELOG.md"
+    assert changelog.exists(), "docs/CHANGELOG.md does not exist"
+    content = changelog.read_text(encoding="utf-8")
+    assert len(content) > 200, "docs/CHANGELOG.md appears to be empty or too short"
+    assert "v0.9.0" in content, "docs/CHANGELOG.md must contain a version entry"

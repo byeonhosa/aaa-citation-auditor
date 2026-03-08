@@ -1,10 +1,27 @@
-# AAA (AI Agent Auditor)
+# AAA Citation Auditor
 
-AAA is a local-first prototype for citation auditing aimed at small law firms, solo practitioners, nonprofits, and local government legal offices.
+**Verify court case citations in legal documents — affordable, private, AI-powered.**
 
-## Docker quick-start (recommended)
+AAA Citation Auditor is a self-hosted tool for small law firms, solo practitioners, nonprofits, and local government legal offices. It extracts citations from uploaded documents or pasted text, verifies them against CourtListener's database of published opinions, and optionally generates an AI-powered risk memo — all without your documents ever leaving your network.
 
-**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
+---
+
+## Features
+
+- **Citation extraction** from DOCX, PDF, or pasted text
+- **Case law verification** against CourtListener (the largest free legal database in the world)
+- **Statute detection** — automatically identifies and labels statutory citations
+- **Smart disambiguation** — resolves ambiguous citations with heuristics and lets you confirm manually
+- **AI risk memos** — advisory summaries powered by OpenAI or a free local model via Ollama
+- **Audit history** — every run is saved and searchable; export at any time
+- **Export** to Markdown, CSV, and printable HTML
+- **Privacy-first** — runs entirely on your own machine; no documents are sent to any cloud service
+
+---
+
+## Quick Start (Docker — recommended)
+
+**Prerequisite:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
 
 ```bash
 # 1. Clone the repository
@@ -18,173 +35,146 @@ docker compose up -d
 open http://localhost:8000
 ```
 
-That's it. The app runs on port 8000 and your audit history is saved automatically across restarts.
+The app is ready. Audit history is saved automatically and persists across restarts.
 
-### Configure CourtListener (free — enables live citation verification)
+### Add a CourtListener token (free — enables live verification)
+
+Without a token, citations are marked `UNVERIFIED_NO_TOKEN` but the app still runs.
 
 1. Create a free account at [courtlistener.com](https://www.courtlistener.com/) and copy your API token.
-2. Copy the override example and add your token:
-
-   ```bash
-   cp docker-compose.override.yml.example docker-compose.override.yml
-   # Edit docker-compose.override.yml and set COURTLISTENER_TOKEN
-   docker compose up -d
-   ```
-
-   Or use the in-app Settings page (no restart required).
+2. In the app, go to **Settings → CourtListener Integration** and paste the token. No restart needed.
 
 ### Enable Ollama for free local AI memos
 
-Ollama runs AI models on your own machine — no API key or subscription needed.
-
 1. In `docker-compose.yml`, uncomment the `ollama` service block and the `ollama-data` volume.
-2. In the same file, set `AI_PROVIDER: "ollama"` and `OLLAMA_BASE_URL: "http://ollama:11434"` under `aaa-app`.
-3. Start everything and pull a model:
+2. Set `AI_PROVIDER: "ollama"` and `OLLAMA_BASE_URL: "http://ollama:11434"` under `aaa-app`.
+3. Start and pull a model:
 
    ```bash
    docker compose up -d
    docker compose exec ollama ollama pull llama3.2
    ```
 
-### Access and back up your data
+4. In **Settings → AI Risk Memo**, select **Ollama** and set the model to `llama3.2`.
 
-All audit data is stored in a Docker volume named `aaa-data`. To back it up:
+### Back up your data
+
+All data lives in a Docker volume (`aaa-data`). To copy it to your current directory:
 
 ```bash
-# Copy the database out of the volume to your current directory
-docker run --rm -v aaa-citation-auditor_aaa-data:/data -v $(pwd):/backup \
+docker run --rm \
+  -v aaa-citation-auditor_aaa-data:/data \
+  -v $(pwd):/backup \
   alpine cp /data/aaa.db /backup/aaa-backup.db
 ```
 
-To reset all data (start fresh), remove the volume:
+---
+
+## Manual Installation (Python)
+
+For developers or users who prefer not to use Docker.
+
+**Requirements:** Python 3.12+
 
 ```bash
-docker compose down -v
-```
+# 1. Clone and enter the repository
+git clone https://github.com/byeonhosa/aaa-citation-auditor.git
+cd aaa-citation-auditor
 
-## Current prototype scope (Phase 2)
+# 2. Create and activate a virtual environment
+python3.12 -m venv .venv
+source .venv/bin/activate        # macOS/Linux
+.venv\Scripts\activate           # Windows
 
-- Server-rendered dashboard with:
-  - pasted text input
-  - `.docx` / `.pdf` upload input
-  - audit submit action
-- Citation extraction pipeline using:
-  - `python-docx` for `.docx` text extraction
-  - `PyMuPDF` (`fitz`) for `.pdf` text extraction
-  - `eyecite` for citation detection
-- Citation verification layer:
-  - with no token: citations are marked `UNVERIFIED_NO_TOKEN`
-  - with token: verifier returns `VERIFIED`, `NOT_FOUND`, `AMBIGUOUS`, or `ERROR`
-- Minimal transparent `Id.` resolution:
-  - `Id.` references the last full citation when available
-  - unresolved `Id.` is shown as unresolved (no guessing)
+# 3. Install dependencies
+pip install --upgrade pip
+pip install -e '.[dev]'
 
-## Tech stack
-
-- Python 3.12
-- FastAPI
-- Jinja2 templates (server-rendered)
-- HTMX
-- SQLAlchemy + SQLite (scaffold only for now)
-- pydantic-settings
-- pytest
-- ruff
-
-## Project structure
-
-```text
-app/
-  main.py
-  settings.py
-  routes/
-  services/
-  templates/
-  static/
-aaa_db/
-  models.py
-  session.py
-tests/
-scripts/
-```
-
-## Local setup
-
-1. Ensure Python 3.12 is installed.
-2. Create and activate a virtual environment:
-
-   ```bash
-   python3.12 -m venv .venv
-   source .venv/bin/activate
-   ```
-
-3. Install dependencies:
-
-   ```bash
-   pip install --upgrade pip
-   pip install -e '.[dev]'
-   ```
-
-4. (Optional) create a `.env` file from example:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-## Run the app
-
-```bash
+# 4. Run the app
 uvicorn app.main:app --reload
-```
-
-Or:
-
-```bash
-./scripts/run_dev.sh
 ```
 
 Open <http://127.0.0.1:8000>.
 
+Optionally create a `.env` file to set configuration values (see the table below).
 
-## Optional verification settings
+---
 
-Set these in `.env` to enable live verification attempts:
+## Configuration Reference
 
-- `COURTLISTENER_TOKEN`
-- `VERIFICATION_BASE_URL` (defaults to CourtListener citation lookup endpoint)
-- `VERIFICATION_TIMEOUT_SECONDS`
+All settings can be changed at runtime via **Settings** in the app UI. Environment variables and `.env` file values are used as defaults on first run.
 
-If no token is provided, the app still works and marks citations as `UNVERIFIED_NO_TOKEN`.
+| Setting | Environment variable | Default | Description |
+|---------|---------------------|---------|-------------|
+| CourtListener token | `COURTLISTENER_TOKEN` | _(none)_ | API token from courtlistener.com. Without it, citations are marked `UNVERIFIED_NO_TOKEN`. |
+| Verification URL | `VERIFICATION_BASE_URL` | CourtListener endpoint | Override only if self-hosting CourtListener. |
+| Request timeout | `COURTLISTENER_TIMEOUT_SECONDS` | `30` | Seconds before a CourtListener request is abandoned. |
+| AI provider | `AI_PROVIDER` | `none` | `none`, `openai`, or `ollama`. |
+| OpenAI API key | `OPENAI_API_KEY` | _(none)_ | Required when AI provider is `openai`. |
+| AI memo model | `AI_MEMO_MODEL` | `gpt-4o-mini` | OpenAI model name. |
+| Ollama base URL | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL. Use `http://ollama:11434` in Docker Compose. |
+| Ollama model | `OLLAMA_MODEL` | `llama3.2` | Model name as shown in `ollama list`. |
+| AI timeout | `AI_REQUEST_TIMEOUT_SECONDS` | `60` | Seconds before an AI memo request is abandoned. |
+| Max file size | `MAX_FILE_SIZE_MB` | `50` | Largest single file the app will accept. |
+| Max files per batch | `MAX_FILES_PER_BATCH` | `10` | Maximum files in a single audit submission. |
+| Max citations per run | `MAX_CITATIONS_PER_RUN` | `500` | Citations beyond this limit are skipped (with a warning). |
+| Log level | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR`. |
+| Database URL | `DATABASE_URL` | `sqlite:///./aaa.db` | SQLite path or a SQLAlchemy-compatible URL. |
 
-## Routes
+---
 
-- `GET /` → Audit Dashboard page
-- `POST /audit` → Run local audit against pasted text or uploaded file (extract + verify)
-- `GET /history` → History page placeholder
-- `GET /settings` → Settings page placeholder
-- `GET /api/health` → `{"status": "ok"}`
+## Screenshots
 
-## Tests
+_Screenshots will be added in a future release._
+
+---
+
+## User Guide
+
+A plain-English guide written for lawyers and legal staff is available at [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
+
+---
+
+## Contributing
+
+This project is in active development. Bug reports and pull requests are welcome. Please open an issue before starting significant new work.
 
 ```bash
+# Run the test suite
 pytest
-```
 
-## Lint and format
-
-```bash
+# Lint and format
 ruff check .
 ruff format .
 ```
 
-## Not included yet
+---
 
-- CourtListener integration
-- database-backed audit history
-- authentication/authorization
-- Docker/background workers/Alembic
+## License
 
+License to be determined. All rights reserved until a license is chosen.
 
-## Local schema note (v0, no migrations)
+---
 
-This prototype currently uses `Base.metadata.create_all(...)` and does not include Alembic migrations yet.
-If you pull schema changes (for example, new columns like citation snippets) and your local `aaa.db` was created by an older version, delete `aaa.db` and restart the app to recreate tables with the latest schema.
+## Developer Notes
+
+**Tech stack:** Python 3.12 · FastAPI · Jinja2 · SQLAlchemy + SQLite · Alembic · pydantic-settings · eyecite · PyMuPDF · python-docx · httpx · openai SDK
+
+**Project structure:**
+
+```
+app/
+  main.py          ← FastAPI app factory, startup, logging
+  settings.py      ← pydantic-settings configuration
+  routes/          ← page and API route handlers
+  services/        ← citation extraction, verification, AI memo, exporters
+  templates/       ← Jinja2 HTML templates
+  static/          ← CSS and favicon
+aaa_db/
+  models.py        ← SQLAlchemy ORM models
+  session.py       ← database session factory
+  repository.py    ← database read/write helpers
+alembic/           ← database migration scripts
+docs/              ← user and developer documentation
+tests/             ← pytest test suite
+```
