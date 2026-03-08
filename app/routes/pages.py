@@ -47,6 +47,25 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 logger = logging.getLogger(__name__)
 
+_GOOD_STATUSES = frozenset({"VERIFIED", "DERIVED", "STATUTE_DETECTED"})
+
+
+def _is_all_clean(citation_results: list) -> bool:
+    return bool(citation_results) and all(
+        (c.verification_status or "UNKNOWN") in _GOOD_STATUSES for c in citation_results
+    )
+
+
+def _is_courtlistener_unreachable(citation_results: list) -> bool:
+    _skip = frozenset({"STATUTE_DETECTED", "DERIVED", "UNVERIFIED_NO_TOKEN"})
+    attempted = [
+        c
+        for c in citation_results
+        if (c.verification_status or "") not in _skip and c.resolution_method != "cache"
+    ]
+    return bool(attempted) and all(c.verification_status == "ERROR" for c in attempted)
+
+
 PASTED_TEXT_FORM = Form(default="")
 UPLOADED_FILES_FORM = File(default=None)
 
@@ -267,6 +286,37 @@ async def run_audit(
             citation_results, eff.max_citations_per_run
         )
         citation_results = resolve_id_citations(citation_results)
+
+        group_warnings = [*source.warnings, *parsing_warnings]
+        if cap_warning:
+            logger.warning("Citation cap triggered for %r: %s", source.source_name, cap_warning)
+            group_warnings.insert(0, cap_warning)
+
+        if not citation_results:
+            latency_ms = int((perf_counter() - started) * 1000)
+            logger.info(
+                "No citations found: source=%r, latency_ms=%d",
+                source.source_name,
+                latency_ms,
+            )
+            result_groups.append(
+                {
+                    "run_id": None,
+                    "source_type": source.source_type,
+                    "source_name": source.source_name,
+                    "citation_count": 0,
+                    "verification_summary": {},
+                    "citations": [],
+                    "warning_messages": group_warnings,
+                    "citation_cap_warning": cap_warning,
+                    "no_citations": True,
+                    "all_clean": False,
+                    "courtlistener_unreachable": False,
+                    "ai_memo": None,
+                }
+            )
+            continue
+
         with db_session() as db:
             cache = lookup_resolution_cache(db)
         citation_results = verify_citations(
@@ -278,10 +328,6 @@ async def run_audit(
             resolution_cache=cache,
         )
 
-        group_warnings = [*source.warnings, *parsing_warnings]
-        if cap_warning:
-            logger.warning("Citation cap triggered for %r: %s", source.source_name, cap_warning)
-            group_warnings.insert(0, cap_warning)
         verification_summary = summarize_verification_statuses(citation_results)
 
         with db_session() as db:
@@ -326,6 +372,9 @@ async def run_audit(
                 "citations": [citation_to_context(citation) for citation in citation_results],
                 "warning_messages": group_warnings,
                 "citation_cap_warning": cap_warning,
+                "no_citations": False,
+                "all_clean": _is_all_clean(citation_results),
+                "courtlistener_unreachable": _is_courtlistener_unreachable(citation_results),
             }
         )
 

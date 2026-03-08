@@ -23,6 +23,7 @@
     <div>
       <button type="submit" id="audit-submit-btn">Audit</button>
     </div>
+    <p id="empty-submit-warning" class="validation-message" style="display:none">Please enter text or upload a document to audit.</p>
   </form>
 </div>
 
@@ -97,11 +98,28 @@
     ({{ group.source_type }})
   </h4>
 
+  {% if group.no_citations %}
+  <div class="card" style="background:var(--surface-1);border:1px solid var(--border)">
+    <p style="margin:0">No citations were detected in this source. Check that the text contains standard legal citation formats.</p>
+  </div>
+  {% else %}
+
   {% if group.citation_cap_warning %}
   <div class="citation-cap-warning warning-box">
     <strong>Warning:</strong> {{ group.citation_cap_warning }}
   </div>
   {% endif %}
+
+  {% if group.all_clean %}
+  <div class="success-message" style="margin-bottom:0.75rem">All citations verified — no issues found.</div>
+  {% endif %}
+
+  {% if group.courtlistener_unreachable %}
+  <div class="warning-box" style="margin-bottom:0.75rem">
+    <strong>CourtListener may be unreachable.</strong> Citations could not be verified. Check your network connection or CourtListener API token in <a href="/settings">Settings</a>.
+  </div>
+  {% endif %}
+
   <p><strong>Citations found:</strong> {{ group.citation_count }}</p>
   {% if group.run_id %}
   <p class="export-links">
@@ -183,6 +201,8 @@
   {% else %}
   <p class="empty-state">No citations were found for this source.</p>
   {% endif %}
+
+  {% endif %}{# end no_citations else #}
 </div>
 {% endfor %}
 {% endif %}
@@ -259,7 +279,17 @@
   if (statusFilter) statusFilter.addEventListener("change", applyFilters);
   if (sourceFilter) sourceFilter.addEventListener("change", applyFilters);
 
-  auditForm.addEventListener("submit", () => {
+  const emptyWarning = document.getElementById("empty-submit-warning");
+
+  auditForm.addEventListener("submit", (event) => {
+    const hasText = textArea.value.trim().length > 0;
+    const hasFiles = fileInput.files && fileInput.files.length > 0;
+    if (!hasText && !hasFiles) {
+      event.preventDefault();
+      emptyWarning.style.display = "block";
+      return;
+    }
+    emptyWarning.style.display = "none";
     auditSubmitBtn.disabled = true;
     auditSubmitBtn.textContent = "Auditing…";
     auditLoading.classList.add("visible");
