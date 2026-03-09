@@ -4476,3 +4476,188 @@ def test_settings_page_includes_search_fallback_toggle() -> None:
     assert response.status_code == 200
     assert "search_fallback_enabled" in response.text
     assert "Search fallback" in response.text
+
+
+# ── PR #34: Citation fragment filter ─────────────────────────────────────────
+
+
+def test_bare_section_symbol_is_filtered() -> None:
+    """A bare § symbol extracted by eyecite is removed before verification."""
+    from app.services.audit import CitationResult, _is_citation_fragment
+
+    fragment = CitationResult(raw_text="§", citation_type="UnknownCitation")
+    assert _is_citation_fragment(fragment) is True
+
+
+def test_double_section_symbol_is_filtered() -> None:
+    """A bare §§ symbol (plural sections) is also removed."""
+    from app.services.audit import CitationResult, _is_citation_fragment
+
+    fragment = CitationResult(raw_text="§§", citation_type="UnknownCitation")
+    assert _is_citation_fragment(fragment) is True
+
+
+def test_short_citation_under_3_chars_filtered() -> None:
+    """Citations with fewer than 3 characters after stripping are filtered."""
+    from app.services.audit import CitationResult, _is_citation_fragment
+
+    short = CitationResult(raw_text="ab", citation_type="UnknownCitation")
+    assert _is_citation_fragment(short) is True
+
+
+def test_single_char_filtered() -> None:
+    """A single-character raw_text is always a fragment."""
+    from app.services.audit import CitationResult, _is_citation_fragment
+
+    one_char = CitationResult(raw_text="X", citation_type="FullCaseCitation")
+    assert _is_citation_fragment(one_char) is True
+
+
+def test_legitimate_case_citation_not_filtered() -> None:
+    """A real case citation is never classified as a fragment."""
+    from app.services.audit import CitationResult, _is_citation_fragment
+
+    real = CitationResult(raw_text="347 U.S. 483", citation_type="FullCaseCitation")
+    assert _is_citation_fragment(real) is False
+
+
+def test_legitimate_statute_citation_not_filtered() -> None:
+    """A statute citation with alphanumeric content is never filtered."""
+    from app.services.audit import CitationResult, _is_citation_fragment
+
+    statute = CitationResult(raw_text="42 U.S.C. § 1983", citation_type="FullLawCitation")
+    assert _is_citation_fragment(statute) is False
+
+
+def test_legitimate_unknown_citation_with_text_not_filtered() -> None:
+    """An UnknownCitation with real alphanumeric text is kept."""
+    from app.services.audit import CitationResult, _is_citation_fragment
+
+    unk = CitationResult(raw_text="2020 WL 1234567", citation_type="UnknownCitation")
+    assert _is_citation_fragment(unk) is False
+
+
+def test_filter_citation_fragments_returns_two_lists() -> None:
+    """filter_citation_fragments returns (kept, dropped) with correct split."""
+    from app.services.audit import CitationResult, filter_citation_fragments
+
+    citations = [
+        CitationResult(raw_text="347 U.S. 483", citation_type="FullCaseCitation"),
+        CitationResult(raw_text="§", citation_type="UnknownCitation"),
+        CitationResult(raw_text="42 U.S.C. § 1983", citation_type="FullLawCitation"),
+        CitationResult(raw_text="§§", citation_type="UnknownCitation"),
+    ]
+    kept, dropped = filter_citation_fragments(citations)
+    assert len(kept) == 2
+    assert len(dropped) == 2
+    assert all(_c.raw_text != "§" for _c in kept)
+
+
+def test_extract_citations_filters_bare_section_symbol() -> None:
+    """extract_citations removes bare § UnknownCitation objects from results."""
+    from app.services.audit import extract_citations
+
+    # Text where eyecite would extract § as UnknownCitation
+    text = "Pursuant to § 1001 of the Act, compliance is required."
+    results, _ = extract_citations(text)
+    raw_texts = [r.raw_text for r in results]
+    assert "§" not in raw_texts, f"Bare § should be filtered; got {raw_texts}"
+
+
+def test_extract_citations_no_garbage_for_state_statute() -> None:
+    """extract_citations returns the statute citation without the bare § fragment."""
+    from app.services.audit import extract_citations
+
+    text = "Under 20-A M.R.S. § 1001(20), attendance is required."
+    results, _ = extract_citations(text)
+    raw_texts = [r.raw_text for r in results]
+
+    # The bare § fragment must not appear
+    assert "§" not in raw_texts, f"Bare § fragment found in {raw_texts}"
+    # The real statute must still be present
+    statute_hits = [t for t in raw_texts if "M.R.S." in t and "1001" in t]
+    assert statute_hits, f"Expected M.R.S. § 1001 in results; got {raw_texts}"
+
+
+def test_id_citation_does_not_derive_from_filtered_fragment() -> None:
+    """Id. after a bare § resolves to the preceding real citation, not the fragment."""
+    from app.services.audit import extract_citations, resolve_id_citations
+
+    # Place a real case citation before the bare symbol and Id.
+    text = "Smith v. Jones, 123 F.3d 456 (1st Cir. 2001). The statute § is relevant. Id. at 460."
+    results, _ = extract_citations(text)
+    results = resolve_id_citations(results)
+
+    id_citations = [r for r in results if r.citation_type == "IdCitation"]
+    assert id_citations, "Expected at least one IdCitation"
+    id_cit = id_citations[0]
+
+    # resolved_from must NOT be "§" — the fragment should have been removed
+    assert id_cit.resolved_from != "§", "Id. must not derive from a bare § fragment"
+    # It should derive from the real case citation (eyecite raw_text is the
+    # reporter span, e.g. "123 F.3d 456", not the full "Smith v. Jones" string)
+    assert id_cit.resolved_from is not None, (
+        f"Id. should have a parent; resolved_from={id_cit.resolved_from!r}"
+    )
+    assert "F.3d" in (id_cit.resolved_from or ""), (
+        f"Id. should derive from the case citation; resolved_from={id_cit.resolved_from!r}"
+    )
+
+
+def test_id_citation_with_no_valid_parent_resolves_to_none() -> None:
+    """Id. at the start of a document (no prior valid citation) resolves_from = None."""
+    from app.services.audit import extract_citations, resolve_id_citations
+
+    text = "Id. at 100."
+    results, _ = extract_citations(text)
+    results = resolve_id_citations(results)
+
+    id_citations = [r for r in results if r.citation_type == "IdCitation"]
+    # Whether or not eyecite picks up Id. here, if it does, parent must be None
+    for id_cit in id_citations:
+        assert id_cit.resolved_from is None
+
+
+def test_filter_preserves_id_citation() -> None:
+    """Id. citations are never filtered out by the fragment filter."""
+    from app.services.audit import CitationResult, _is_citation_fragment
+
+    id_cit = CitationResult(raw_text="Id.", citation_type="IdCitation")
+    assert _is_citation_fragment(id_cit) is False
+
+
+def test_filter_preserves_supra_citation() -> None:
+    """SupraCitation objects with real text are not filtered."""
+    from app.services.audit import CitationResult, _is_citation_fragment
+
+    supra = CitationResult(raw_text="supra", citation_type="SupraCitation")
+    assert _is_citation_fragment(supra) is False
+
+
+def test_bare_section_not_verified_by_courtlistener() -> None:
+    """Bare § is filtered before CourtListener is called, preventing a false VERIFIED."""
+    from app.services.audit import extract_citations, resolve_id_citations
+    from app.services.verification import VerificationResponse, verify_citations
+
+    class _AlwaysVerifiedVerifier:
+        """Stub that would falsely mark everything as VERIFIED."""
+
+        def verify(self, citation):  # noqa: ANN001
+            return VerificationResponse(status="VERIFIED", detail="Matched.")
+
+    text = "See Brown v. Board, 347 U.S. 483 (1954). § is a fragment."
+    results, _ = extract_citations(text)
+    results = resolve_id_citations(results)
+
+    # Confirm the bare § is absent before verification
+    assert all(r.raw_text != "§" for r in results), "Bare § must be filtered before verification"
+
+    verified = verify_citations(
+        results,
+        courtlistener_token="tok",
+        verification_base_url="http://test",
+        verifier=_AlwaysVerifiedVerifier(),
+        search_fallback_enabled=False,
+    )
+    # None of the verified results should have raw_text of bare §
+    assert all(r.raw_text != "§" for r in verified)

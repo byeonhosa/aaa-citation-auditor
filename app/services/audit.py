@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
@@ -115,6 +116,77 @@ def _find_undetected_state_statutes(
     return extra
 
 
+# ── Citation fragment filter ──────────────────────────────────────────────────
+#
+# eyecite occasionally extracts bare section symbols ("§", "§§") as
+# UnknownCitation objects when it can't associate the symbol with a statute.
+# These are not real citations and must be removed before verification to avoid:
+#   • False CourtListener matches for bare "§"
+#   • Id. citations deriving from a garbage parent
+#   • Duplicate entries alongside the correctly-detected STATUTE_DETECTED hit
+#
+# Filter rules (conservative — when in doubt, keep):
+#   1. Strip if raw_text has fewer than 3 characters after stripping whitespace.
+#   2. Strip if raw_text contains only Unicode symbols / punctuation (no letters
+#      or digits) — catches "§", "§§", "§§§", etc.
+#   3. Strip UnknownCitation objects whose raw_text is only symbols/punctuation
+#      (same test as rule 2, restricted to the Unknown type).
+#
+# All filtered citations are logged at DEBUG level so the filter is auditable.
+
+
+def _has_alphanumeric(text: str) -> bool:
+    """Return True if *text* contains at least one letter or digit."""
+    return any(unicodedata.category(ch)[0] in {"L", "N"} for ch in text)
+
+
+def _is_citation_fragment(citation: CitationResult) -> bool:
+    """Return True if *citation* is an invalid fragment that should be dropped.
+
+    Rules are conservative: only obviously-invalid extractions are rejected.
+    """
+    raw = citation.raw_text.strip()
+
+    # Rule 1: too short to be a real citation
+    if len(raw) < 3:
+        return True
+
+    # Rule 2: no letters or digits — pure symbol/punctuation (e.g. "§", "§§")
+    if not _has_alphanumeric(raw):
+        return True
+
+    # Rule 3: UnknownCitation with only symbols — still pure noise even if ≥3 chars
+    if citation.citation_type == "UnknownCitation" and not _has_alphanumeric(raw):
+        return True
+
+    return False
+
+
+def filter_citation_fragments(
+    citations: list[CitationResult],
+) -> tuple[list[CitationResult], list[CitationResult]]:
+    """Split *citations* into (valid, filtered) lists.
+
+    Filtered citations are logged at DEBUG level for auditability.
+    Returns a 2-tuple: (kept citations, dropped citations).
+    """
+    kept: list[CitationResult] = []
+    dropped: list[CitationResult] = []
+    for citation in citations:
+        if _is_citation_fragment(citation):
+            dropped.append(citation)
+            logger.debug(
+                "Citation fragment filtered out: type=%s raw=%r",
+                citation.citation_type,
+                citation.raw_text,
+            )
+        else:
+            kept.append(citation)
+    if dropped:
+        logger.info("Filtered %d citation fragment(s) (kept %d)", len(dropped), len(kept))
+    return kept, dropped
+
+
 def extract_citations(text: str) -> tuple[list[CitationResult], list[str]]:
     warnings: list[str] = []
     results: list[CitationResult] = []
@@ -154,6 +226,12 @@ def extract_citations(text: str) -> tuple[list[CitationResult], list[str]]:
     if extra:
         logger.info("State statute post-extraction: found %d additional statute(s)", len(extra))
         results.extend(extra)
+
+    # Filter pass: remove bare section symbols and other fragments eyecite
+    # over-parses.  This runs after the state-statute pass so that any valid
+    # statute citations added above are NOT filtered out (they always have
+    # alphanumeric content in their raw_text).
+    results, _ = filter_citation_fragments(results)
 
     if not results:
         warnings.append("No citations were detected.")
