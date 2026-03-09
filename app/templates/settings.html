@@ -32,6 +32,13 @@
     <label for="courtlistener_timeout_seconds">Request Timeout (seconds)</label>
     <input type="number" id="courtlistener_timeout_seconds" name="courtlistener_timeout_seconds"
            value="{{ ui.courtlistener_timeout_seconds }}" min="5" max="300">
+
+    <label>
+      <input type="checkbox" name="search_fallback_enabled"
+             {% if ui.search_fallback_enabled in ("True", "true", "1", "yes") %}checked{% endif %}>
+      Search fallback for NOT_FOUND citations
+    </label>
+    <small>When enabled, citations not found via direct lookup are searched by case name. Useful for LEXIS/WL citations and unusual formats. Adds a short delay per citation.</small>
   </div>
 
   <div class="card">

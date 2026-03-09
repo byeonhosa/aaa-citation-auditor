@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     verification_base_url: str = "https://www.courtlistener.com/api/rest/v4/citation-lookup/"
     courtlistener_timeout_seconds: int = 30
     batch_verification: bool = True
+    search_fallback_enabled: bool = True
 
     ai_provider: str = "none"  # "none" | "openai" | "ollama"
     ai_memo_include_content: bool = False

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -13,6 +14,55 @@ from app.services.disambiguation import try_heuristic_resolution
 from app.services.http_client import post_with_retry
 
 logger = logging.getLogger(__name__)
+
+# ── Candidate deduplication ───────────────────────────────────────────────────
+
+_PUNCT_STRIP_RE = re.compile(r"[^\w\s]")
+
+
+def _normalize_candidate_name(name: str) -> str:
+    """Lowercase and strip punctuation for dedup comparison."""
+    return _PUNCT_STRIP_RE.sub("", name.lower()).strip()
+
+
+def _deduplicate_candidates(
+    candidates: list[dict],
+) -> tuple[list[dict], bool]:
+    """Deduplicate CourtListener candidates by normalized case_name + date_filed.
+
+    CourtListener occasionally returns multiple cluster IDs for the same
+    opinion (a data issue on their side).  Deduplication keeps the entry
+    with the lowest cluster_id within each (name, date) group.
+
+    Returns
+    -------
+    (deduped_list, had_duplicates)
+    """
+    seen: dict[tuple[str, str], dict] = {}
+    had_duplicates = False
+
+    for candidate in candidates:
+        name_key = _normalize_candidate_name(candidate.get("case_name") or "")
+        date_key = (candidate.get("date_filed") or "")[:10]  # YYYY-MM-DD or empty
+        key = (name_key, date_key)
+
+        if key in seen:
+            had_duplicates = True
+            existing_id = seen[key].get("cluster_id")
+            new_id = candidate.get("cluster_id")
+            logger.warning(
+                "Duplicate CourtListener candidate: cluster %s duplicates cluster %s "
+                "(case_name=%r, date=%r) — likely a CourtListener data issue; "
+                "please report to their team.",
+                new_id,
+                existing_id,
+                candidate.get("case_name"),
+                date_key,
+            )
+        else:
+            seen[key] = candidate
+
+    return list(seen.values()), had_duplicates
 
 
 @dataclass
@@ -104,15 +154,13 @@ def map_courtlistener_result(result: dict[str, Any]) -> VerificationResponse:
             if error_message
             else "Multiple possible CourtListener matches."
         )
-        candidate_cluster_ids: list[int] = []
-        candidate_metadata: list[dict] = []
+        raw_candidates: list[dict] = []
         for cluster in clusters:
             if not isinstance(cluster, dict):
                 continue
             cid = cluster.get("id")
             if isinstance(cid, int):
-                candidate_cluster_ids.append(cid)
-                candidate_metadata.append(
+                raw_candidates.append(
                     {
                         "cluster_id": cid,
                         "case_name": cluster.get("case_name")
@@ -122,6 +170,9 @@ def map_courtlistener_result(result: dict[str, Any]) -> VerificationResponse:
                         "date_filed": cluster.get("date_filed") or "",
                     }
                 )
+        # Remove duplicate candidates (CourtListener data issue)
+        candidate_metadata, _ = _deduplicate_candidates(raw_candidates)
+        candidate_cluster_ids = [c["cluster_id"] for c in candidate_metadata]
         return VerificationResponse(
             status="AMBIGUOUS",
             detail=detail,
@@ -418,6 +469,8 @@ def verify_citations(
     courtlistener_timeout_seconds: int = 30,
     batch_verification: bool = True,
     resolution_cache: dict[str, Any] | None = None,
+    search_fallback_enabled: bool = True,
+    search_url: str | None = None,
 ) -> list[CitationResult]:
     # ── First pass: handle STATUTE, DERIVED, NO_TOKEN, and cache hits ──
     verifiable: list[CitationResult] = []
@@ -500,7 +553,84 @@ def verify_citations(
     else:
         _verify_single(verifiable, active_verifier)
 
-    # ── Third pass: heuristic auto-disambiguation of AMBIGUOUS citations ──
+    # ── Third pass: dedup auto-resolve ──────────────────────────────────────
+    # AMBIGUOUS citations reduced to a single unique candidate are resolved
+    # automatically.  (CourtListener occasionally returns duplicate cluster
+    # IDs for the same opinion; deduplication already happened in
+    # map_courtlistener_result, so candidate_metadata is already deduped here.)
+    dedup_resolved = 0
+    for citation in verifiable:
+        if (
+            citation.verification_status == "AMBIGUOUS"
+            and citation.candidate_metadata
+            and len(citation.candidate_metadata) == 1
+        ):
+            winner = citation.candidate_metadata[0]
+            citation.verification_status = "VERIFIED"
+            citation.selected_cluster_id = winner["cluster_id"]
+            citation.resolution_method = "dedup"
+            case_name = winner.get("case_name") or ""
+            cid = winner["cluster_id"]
+            detail = f"Resolved automatically (duplicate candidates removed, cluster {cid})"
+            if case_name:
+                detail += f". {case_name}"
+            citation.verification_detail = detail + "."
+            dedup_resolved += 1
+            logger.info(
+                "Dedup auto-resolved: %r → cluster %d",
+                citation.raw_text,
+                winner["cluster_id"],
+            )
+
+    if dedup_resolved:
+        logger.info("Dedup auto-resolved %d citation(s)", dedup_resolved)
+
+    # ── Fourth pass: search fallback for NOT_FOUND citations ────────────────
+    if search_fallback_enabled and courtlistener_token:
+        from app.services.search_fallback import (
+            COURTLISTENER_SEARCH_URL,
+            try_search_fallback,
+        )
+
+        effective_search_url = search_url or COURTLISTENER_SEARCH_URL
+        fallback_resolved = 0
+        fallback_ambiguous = 0
+
+        for citation in verifiable:
+            if citation.verification_status != "NOT_FOUND":
+                continue
+
+            fb = try_search_fallback(
+                citation,
+                token=courtlistener_token,
+                search_url=effective_search_url,
+                timeout_seconds=courtlistener_timeout_seconds,
+            )
+            if fb is None:
+                continue
+
+            citation.verification_status = fb.status
+            citation.verification_detail = fb.detail
+            citation.candidate_cluster_ids = fb.candidate_cluster_ids
+            citation.candidate_metadata = fb.candidate_metadata
+
+            if fb.status == "VERIFIED":
+                citation.resolution_method = "search_fallback"
+                citation.selected_cluster_id = (fb.candidate_cluster_ids or [None])[0]
+                fallback_resolved += 1
+            else:
+                fallback_ambiguous += 1
+
+        if fallback_resolved or fallback_ambiguous:
+            logger.info(
+                "Search fallback: %d resolved, %d still ambiguous",
+                fallback_resolved,
+                fallback_ambiguous,
+            )
+
+    # ── Fifth pass: heuristic auto-disambiguation of AMBIGUOUS citations ─────
+    # Runs after both dedup and search fallback so it applies to AMBIGUOUS
+    # results from all sources (initial verification and search fallback).
     heuristic_resolved = 0
     for citation in verifiable:
         if citation.verification_status == "AMBIGUOUS" and citation.candidate_metadata:
