@@ -13,6 +13,32 @@ from app.services.audit import CitationResult
 from app.services.disambiguation import try_heuristic_resolution
 from app.services.http_client import post_with_retry
 
+# ── Short-citation matching helpers ──────────────────────────────────────────
+
+# Matches short citations like "588 U.S. at 392" or "123 F.3d at 456".
+# Reporter group uses [\w.]+ to handle reporters with embedded digits (F.3d,
+# S.Ct., L.Ed.2d) as well as plain dotted reporters (U.S.).
+_SHORT_CITE_RE = re.compile(r"^(\d+)\s+([\w.]+)\s+at\s+\d+")
+
+# Matches full citations like "588 U.S. 388" or "123 F.3d 400".
+_FULL_CITE_REPORTER_RE = re.compile(r"^(\d+)\s+([\w.]+)\s+\d+")
+
+
+def _parse_volume_reporter(raw_text: str) -> tuple[str, str] | None:
+    """Return (volume, reporter) from a citation's raw text, or None.
+
+    Works for both short citations ("588 U.S. at 392") and full citations
+    ("588 U.S. 388").  Reporter comparison is case-insensitive.
+    """
+    for pattern in (_SHORT_CITE_RE, _FULL_CITE_REPORTER_RE):
+        m = pattern.match(raw_text.strip())
+        if m:
+            volume = m.group(1)
+            reporter = m.group(2).strip().rstrip(".")
+            return volume, reporter.lower()
+    return None
+
+
 logger = logging.getLogger(__name__)
 
 # ── Candidate deduplication ───────────────────────────────────────────────────
@@ -658,6 +684,60 @@ def verify_citations(
 
     if heuristic_resolved:
         logger.info("Heuristic auto-resolved %d citation(s)", heuristic_resolved)
+
+    # ── Sixth pass: short-citation matching ──────────────────────────────────
+    # For unresolved ShortCaseCitation entries, check whether a VERIFIED full
+    # citation in the same run shares the same reporter + volume.  If so,
+    # resolve the short cite to the same cluster.
+    #
+    # Example: "588 U.S. at 392" matches VERIFIED "588 U.S. 388" because
+    # both are volume 588 of the U.S. reporter.
+    verified_by_vol_reporter: dict[tuple[str, str], CitationResult] = {}
+    for citation in citations:
+        if citation.verification_status == "VERIFIED":
+            parsed = _parse_volume_reporter(citation.raw_text)
+            if parsed:
+                key = parsed  # (volume_str, reporter_lower)
+                # Keep the first VERIFIED match per (volume, reporter)
+                if key not in verified_by_vol_reporter:
+                    verified_by_vol_reporter[key] = citation
+
+    short_cite_resolved = 0
+    for citation in citations:
+        if citation.citation_type != "ShortCaseCitation":
+            continue
+        if citation.verification_status not in ("AMBIGUOUS", "NOT_FOUND"):
+            continue
+
+        parsed = _parse_volume_reporter(citation.raw_text)
+        if parsed is None:
+            continue
+
+        matched_full = verified_by_vol_reporter.get(parsed)
+        if matched_full is None:
+            continue
+
+        full_cite_text = matched_full.raw_text
+        # Use the full citation's cluster_id; may be None for plain VERIFIED citations
+        cluster_id = matched_full.selected_cluster_id
+        citation.verification_status = "VERIFIED"
+        citation.selected_cluster_id = cluster_id
+        citation.resolution_method = "short_cite_match"
+        if cluster_id is not None:
+            citation.candidate_cluster_ids = [cluster_id]
+        citation.verification_detail = (
+            f"Matched to verified citation {full_cite_text!r} (same reporter and volume)."
+        )
+        short_cite_resolved += 1
+        logger.info(
+            "Short-cite match: %r → cluster %s via %r",
+            citation.raw_text,
+            cluster_id,
+            full_cite_text,
+        )
+
+    if short_cite_resolved:
+        logger.info("Short-cite match resolved %d citation(s)", short_cite_resolved)
 
     summary = summarize_verification_statuses(citations)
     logger.info("Verification complete: %s", summary)

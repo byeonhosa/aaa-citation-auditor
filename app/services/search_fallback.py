@@ -11,19 +11,22 @@ Resolution rules
 ----------------
 • 0 results  → return None (caller keeps NOT_FOUND)
 • 1 result   → VERIFIED with resolution_method="search_fallback"
-• 2+ results → AMBIGUOUS (caller's heuristic pass may further resolve)
+• 2-3 results → AMBIGUOUS (caller's heuristic pass may further resolve)
+• 4+ results → return None (query too broad; caller keeps NOT_FOUND)
+• No case name extracted → return None (query would be too broad)
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
 import httpx
 
 from app.services.audit import CitationResult
-from app.services.disambiguation import extract_name_tokens
+from app.services.disambiguation import extract_court_id, extract_name_tokens, extract_year
 from app.services.verification import VerificationResponse
 
 logger = logging.getLogger(__name__)
@@ -34,25 +37,71 @@ COURTLISTENER_SEARCH_URL = "https://www.courtlistener.com/api/rest/v4/search/"
 # Courtesy delay between fallback requests to avoid hammering the API
 _FALLBACK_DELAY_SECONDS = 0.5
 
-# Maximum candidates to surface from search results
-_MAX_SEARCH_CANDIDATES = 5
+# Maximum candidates to surface: 2-3 results → AMBIGUOUS, 4+ → too broad
+_MAX_USEFUL_RESULTS = 3
+
+# Pattern to extract "Party v. Party" case name from surrounding text
+_CASE_NAME_RE = re.compile(
+    r"\b([A-Z][A-Za-z''\-\s]{1,40})\s+v\.\s+([A-Z][A-Za-z''\-\s]{1,40}?)(?=\s*[,;(]|\s*\d|\Z)",
+)
 
 
 # ── Query building ────────────────────────────────────────────────────────────
 
 
+def _extract_case_name_from_snippet(snippet: str) -> str | None:
+    """Extract a 'X v. Y' case name from the surrounding snippet text.
+
+    Returns the full matched case name string (e.g. "Marshall v. Amuso"),
+    or None if no case name pattern is found.
+    """
+    m = _CASE_NAME_RE.search(snippet)
+    if not m:
+        return None
+    # Combine both parties, strip trailing whitespace
+    plaintiff = m.group(1).strip().rstrip(",;")
+    defendant = m.group(2).strip().rstrip(",;")
+    if not plaintiff or not defendant:
+        return None
+    return f"{plaintiff} v. {defendant}"
+
+
 def _build_search_query(citation: CitationResult) -> str | None:
     """Build a CourtListener search query from a citation's text and snippet.
 
-    For LEXIS/WL citations the raw text has no useful case-name tokens; in
-    that case we fall back to the surrounding snippet which often contains
-    the case name.
+    Strategy (precision-first):
+    1. Try to extract a "X v. Y" case name from the snippet.  If found,
+       use that as the primary query (most precise).
+    2. Otherwise try to extract name tokens from the raw citation text.
+    3. If neither yields tokens, return None (skip the search entirely).
+
+    Returns None if no usable query can be built; this signals the caller
+    to skip the search and keep NOT_FOUND rather than producing noisy results.
     """
+    # 1. Case name from snippet (highest precision)
+    if citation.snippet:
+        case_name = _extract_case_name_from_snippet(citation.snippet)
+        if case_name:
+            # Optionally append court/year for extra precision
+            extra: list[str] = []
+            year = extract_year(citation.snippet) or extract_year(citation.raw_text)
+            court_id = extract_court_id(citation.snippet) or extract_court_id(citation.raw_text)
+            if year:
+                extra.append(year)
+            if court_id:
+                extra.append(court_id)
+            query = case_name
+            if extra:
+                query += " " + " ".join(extra)
+            return query
+
+    # 2. Name tokens from raw citation text
     tokens = extract_name_tokens(citation.raw_text)
     if not tokens and citation.snippet:
         tokens = extract_name_tokens(citation.snippet)
     if not tokens:
         return None
+
     # Use up to 5 meaningful tokens to keep the query focused
     return " ".join(tokens[:5])
 
@@ -142,7 +191,8 @@ def try_search_fallback(
     Returns
     -------
     ``VerificationResponse`` with status VERIFIED (single unambiguous match)
-    or AMBIGUOUS (multiple candidates), or ``None`` if no results were found
+    or AMBIGUOUS (2–3 candidates), or ``None`` if no results were found,
+    the query was too broad (4+ results), or no case name could be extracted
     (caller should keep NOT_FOUND).
     """
     query = _build_search_query(citation)
@@ -175,9 +225,18 @@ def try_search_fallback(
         len(raw_results),
     )
 
+    # If the API reports more results than our threshold, the query is too broad
+    if count > _MAX_USEFUL_RESULTS:
+        logger.info(
+            "Search fallback: query too broad (%d total results) for %r — keeping NOT_FOUND",
+            count,
+            citation.raw_text,
+        )
+        return None
+
     candidates = [
         c
-        for r in raw_results[:_MAX_SEARCH_CANDIDATES]
+        for r in raw_results[:_MAX_USEFUL_RESULTS]
         if isinstance(r, dict)
         for c in [_candidate_from_search_result(r)]
         if c is not None
@@ -207,7 +266,7 @@ def try_search_fallback(
             candidate_metadata=candidates,
         )
 
-    # Multiple candidates — surface them for user disambiguation
+    # 2–3 candidates — surface them for user disambiguation
     cluster_ids = [c["cluster_id"] for c in candidates if isinstance(c["cluster_id"], int)]
     logger.info(
         "Search fallback: %d candidates for %r → AMBIGUOUS",
