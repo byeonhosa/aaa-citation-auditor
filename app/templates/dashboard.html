@@ -131,14 +131,15 @@
   {% endif %}
 
   {% if group.verification_summary %}
-  <div class="summary-grid">
+  <div class="summary-grid" id="summary-grid-{{ loop.index }}" data-group-index="{{ loop.index }}">
     {% for status, count in group.verification_summary.items() %}
-    <div class="summary-card">
+    <div class="summary-card" data-filter-status="{{ status }}" data-group-index="{{ loop.index }}" role="button" tabindex="0" style="cursor:pointer" title="Filter by {{ status }}">
       <div class="summary-status">{{ status }}</div>
       <div class="summary-count">{{ count }}</div>
     </div>
     {% endfor %}
   </div>
+  <p id="filter-note-{{ loop.index }}" class="filter-note" style="display:none"></p>
   {% endif %}
 
   <div class="ai-memo-box">
@@ -278,6 +279,64 @@
 
   if (statusFilter) statusFilter.addEventListener("change", applyFilters);
   if (sourceFilter) sourceFilter.addEventListener("change", applyFilters);
+
+  // ── Clickable summary-card status filter (per result group) ──────────────
+  (function () {
+    const activeByGroup = {};
+
+    document.querySelectorAll(".summary-grid[data-group-index]").forEach((grid) => {
+      const groupIndex = grid.getAttribute("data-group-index");
+      const cards = grid.querySelectorAll("[data-filter-status]");
+      const filterNote = document.getElementById("filter-note-" + groupIndex);
+      const resultGroup = document.getElementById("result-" + groupIndex);
+      if (!resultGroup) return;
+      const groupItems = resultGroup.querySelectorAll(".citation-item[data-status]");
+      const totalCount = groupItems.length;
+
+      function applyGroupFilter(status) {
+        let visible = 0;
+        groupItems.forEach((item) => {
+          const show = status === null || item.getAttribute("data-status") === status;
+          item.style.display = show ? "" : "none";
+          if (show) visible++;
+        });
+        cards.forEach((card) => {
+          card.classList.toggle("summary-card-active", card.getAttribute("data-filter-status") === status);
+        });
+        if (filterNote) {
+          if (status === null) {
+            filterNote.style.display = "none";
+          } else {
+            filterNote.textContent = "Showing " + visible + " of " + totalCount + " citations (" + status + " only) — click again to show all";
+            filterNote.style.display = "block";
+          }
+        }
+      }
+
+      cards.forEach((card) => {
+        function toggle() {
+          const status = card.getAttribute("data-filter-status");
+          activeByGroup[groupIndex] = activeByGroup[groupIndex] === status ? null : status;
+          applyGroupFilter(activeByGroup[groupIndex]);
+          // Sync the global status-filter dropdown to ALL if a card filter is active
+          if (statusFilter) statusFilter.value = "ALL";
+        }
+        card.addEventListener("click", toggle);
+        card.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+        });
+      });
+
+      // When the global dropdown filter changes, clear all card active states
+      if (statusFilter) {
+        statusFilter.addEventListener("change", () => {
+          activeByGroup[groupIndex] = null;
+          cards.forEach((c) => c.classList.remove("summary-card-active"));
+          if (filterNote) filterNote.style.display = "none";
+        });
+      }
+    });
+  })();
 
   const emptyWarning = document.getElementById("empty-submit-warning");
 

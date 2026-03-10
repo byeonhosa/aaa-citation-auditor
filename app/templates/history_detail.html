@@ -16,15 +16,16 @@
   <p><strong>Warnings:</strong> {{ run.warning_text }}</p>
   {% endif %}
 
-  <div class="summary-grid" style="margin-top:1rem">
-    <div class="summary-card"><div class="summary-status">VERIFIED</div><div class="summary-count">{{ run.verified_count }}</div></div>
-    <div class="summary-card"><div class="summary-status">NOT_FOUND</div><div class="summary-count">{{ run.not_found_count }}</div></div>
-    <div class="summary-card"><div class="summary-status">AMBIGUOUS</div><div class="summary-count">{{ run.ambiguous_count }}</div></div>
-    <div class="summary-card summary-card-derived"><div class="summary-status">DERIVED</div><div class="summary-count">{{ run.derived_count }}</div></div>
-    <div class="summary-card summary-card-statute"><div class="summary-status">STATUTE_DETECTED</div><div class="summary-count">{{ run.statute_count }}</div></div>
-    <div class="summary-card"><div class="summary-status">ERROR</div><div class="summary-count">{{ run.error_count }}</div></div>
-    <div class="summary-card"><div class="summary-status">UNVERIFIED_NO_TOKEN</div><div class="summary-count">{{ run.unverified_no_token_count }}</div></div>
+  <div class="summary-grid" style="margin-top:1rem" id="history-summary-grid">
+    <div class="summary-card" data-filter-status="VERIFIED" role="button" tabindex="0" style="cursor:pointer" title="Filter by VERIFIED"><div class="summary-status">VERIFIED</div><div class="summary-count">{{ run.verified_count }}</div></div>
+    <div class="summary-card" data-filter-status="NOT_FOUND" role="button" tabindex="0" style="cursor:pointer" title="Filter by NOT_FOUND"><div class="summary-status">NOT_FOUND</div><div class="summary-count">{{ run.not_found_count }}</div></div>
+    <div class="summary-card" data-filter-status="AMBIGUOUS" role="button" tabindex="0" style="cursor:pointer" title="Filter by AMBIGUOUS"><div class="summary-status">AMBIGUOUS</div><div class="summary-count">{{ run.ambiguous_count }}</div></div>
+    <div class="summary-card summary-card-derived" data-filter-status="DERIVED" role="button" tabindex="0" style="cursor:pointer" title="Filter by DERIVED"><div class="summary-status">DERIVED</div><div class="summary-count">{{ run.derived_count }}</div></div>
+    <div class="summary-card summary-card-statute" data-filter-status="STATUTE_DETECTED" role="button" tabindex="0" style="cursor:pointer" title="Filter by STATUTE_DETECTED"><div class="summary-status">STATUTE_DETECTED</div><div class="summary-count">{{ run.statute_count }}</div></div>
+    <div class="summary-card" data-filter-status="ERROR" role="button" tabindex="0" style="cursor:pointer" title="Filter by ERROR"><div class="summary-status">ERROR</div><div class="summary-count">{{ run.error_count }}</div></div>
+    <div class="summary-card" data-filter-status="UNVERIFIED_NO_TOKEN" role="button" tabindex="0" style="cursor:pointer" title="Filter by UNVERIFIED_NO_TOKEN"><div class="summary-status">UNVERIFIED_NO_TOKEN</div><div class="summary-count">{{ run.unverified_no_token_count }}</div></div>
   </div>
+  <p id="history-filter-note" style="display:none;margin-top:0.5rem"></p>
 
   <p class="export-links" style="margin-top:1rem">
     Export:
@@ -72,7 +73,7 @@
   {% if citations %}
   <ul style="list-style:none;padding:0;margin:0">
     {% for citation in citations %}
-    <li class="citation-item">
+    <li class="citation-item" data-status="{{ citation.verification_status or 'UNKNOWN' }}">
       <p><strong>Raw text:</strong> {{ citation.raw_text }}</p>
       <p><strong>Type:</strong> {{ citation.citation_type }}</p>
       <p><strong>Normalized:</strong> {{ citation.normalized_text or "(not available)" }}</p>
@@ -142,5 +143,44 @@
       }
     });
   });
+
+  // ── Clickable status filter ───────────────────────────────────────────────
+  (function () {
+    const cards = document.querySelectorAll("#history-summary-grid [data-filter-status]");
+    const filterNote = document.getElementById("history-filter-note");
+    const allItems = document.querySelectorAll(".citation-item[data-status]");
+    const totalCount = allItems.length;
+    let activeStatus = null;
+
+    function applyStatusFilter(status) {
+      let visible = 0;
+      allItems.forEach((item) => {
+        const show = status === null || item.getAttribute("data-status") === status;
+        item.style.display = show ? "" : "none";
+        if (show) visible++;
+      });
+      cards.forEach((card) => {
+        card.classList.toggle("summary-card-active", card.getAttribute("data-filter-status") === status);
+      });
+      if (status === null) {
+        filterNote.style.display = "none";
+      } else {
+        filterNote.textContent = "Showing " + visible + " of " + totalCount + " citations (" + status + " only) — click again to show all";
+        filterNote.style.display = "block";
+      }
+    }
+
+    cards.forEach((card) => {
+      function toggle() {
+        const status = card.getAttribute("data-filter-status");
+        activeStatus = activeStatus === status ? null : status;
+        applyStatusFilter(activeStatus);
+      }
+      card.addEventListener("click", toggle);
+      card.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+      });
+    });
+  })();
 </script>
 {% endblock %}

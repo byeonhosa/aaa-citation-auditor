@@ -437,6 +437,8 @@ label:has(input[type="checkbox"]) {
 
 .summary-card-derived  { background: var(--blue-bg);   border-color: #bfdbfe; }
 .summary-card-statute  { background: var(--teal-bg);   border-color: #99f6e4; }
+.summary-card-active   { outline: 2px solid var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent); font-weight: 700; }
+.filter-note           { font-size: 0.85rem; color: var(--text-2); margin: 0.25rem 0 0.5rem; }
 
 /* ── Result groups ──────────────────────────────────────────────────────── */
 .result-group {
