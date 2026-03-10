@@ -12,6 +12,7 @@ import httpx
 from app.services.audit import CitationResult
 from app.services.disambiguation import try_heuristic_resolution
 from app.services.http_client import post_with_retry
+from app.services.name_matching import case_names_match
 
 # ── Short-citation matching helpers ──────────────────────────────────────────
 
@@ -43,52 +44,61 @@ logger = logging.getLogger(__name__)
 
 # ── Candidate deduplication ───────────────────────────────────────────────────
 
-_PUNCT_STRIP_RE = re.compile(r"[^\w\s]")
-
-
-def _normalize_candidate_name(name: str) -> str:
-    """Lowercase and strip punctuation for dedup comparison."""
-    return _PUNCT_STRIP_RE.sub("", name.lower()).strip()
-
 
 def _deduplicate_candidates(
     candidates: list[dict],
 ) -> tuple[list[dict], bool]:
-    """Deduplicate CourtListener candidates by normalized case_name + date_filed.
+    """Deduplicate CourtListener candidates by fuzzy case_name + date_filed.
 
     CourtListener occasionally returns multiple cluster IDs for the same
-    opinion (a data issue on their side).  Deduplication keeps the entry
-    with the lowest cluster_id within each (name, date) group.
+    opinion (a data issue on their side).  Deduplication keeps the first
+    entry encountered within each (name-match, date) group.
+
+    Name comparison uses ``case_names_match`` from name_matching so that
+    abbreviation variants (e.g. "Dept." vs "Department") are treated as
+    the same name.
 
     Returns
     -------
     (deduped_list, had_duplicates)
     """
-    seen: dict[tuple[str, str], dict] = {}
+    kept: list[dict] = []
     had_duplicates = False
 
     for candidate in candidates:
-        name_key = _normalize_candidate_name(candidate.get("case_name") or "")
-        date_key = (candidate.get("date_filed") or "")[:10]  # YYYY-MM-DD or empty
-        key = (name_key, date_key)
+        cand_name = candidate.get("case_name") or ""
+        cand_date = (candidate.get("date_filed") or "")[:10]  # YYYY-MM-DD or empty
 
-        if key in seen:
+        # Check if this candidate matches any already-kept entry
+        is_dup = False
+        for existing in kept:
+            existing_name = existing.get("case_name") or ""
+            existing_date = (existing.get("date_filed") or "")[:10]
+            if existing_date == cand_date:
+                matched, confidence = case_names_match(cand_name, existing_name)
+                if matched and confidence >= 0.8:
+                    is_dup = True
+                    existing_id = existing.get("cluster_id")
+                    new_id = candidate.get("cluster_id")
+                    logger.warning(
+                        "Duplicate CourtListener candidate: cluster %s duplicates cluster %s "
+                        "(case_name=%r ~ %r, date=%r, confidence=%.1f) — "
+                        "likely a CourtListener data issue; please report to their team.",
+                        new_id,
+                        existing_id,
+                        cand_name,
+                        existing_name,
+                        cand_date,
+                        confidence,
+                    )
+                    break
+
+        if is_dup:
             had_duplicates = True
-            existing_id = seen[key].get("cluster_id")
-            new_id = candidate.get("cluster_id")
-            logger.warning(
-                "Duplicate CourtListener candidate: cluster %s duplicates cluster %s "
-                "(case_name=%r, date=%r) — likely a CourtListener data issue; "
-                "please report to their team.",
-                new_id,
-                existing_id,
-                candidate.get("case_name"),
-                date_key,
-            )
         else:
-            seen[key] = candidate
+            kept.append(candidate)
 
-    return list(seen.values()), had_duplicates
+    return kept, had_duplicates
 
 
 @dataclass
