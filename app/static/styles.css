@@ -601,6 +601,19 @@ label:has(input[type="checkbox"]) {
   text-decoration: none;
 }
 
+/* ── Help-verify links (NOT_FOUND) ─────────────────────────────────────── */
+.help-verify-links {
+  font-size: 0.875rem;
+  margin: 0.25rem 0;
+}
+.help-verify-links a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.help-verify-links a:hover {
+  text-decoration: none;
+}
+
 /* ── Disambiguate hint ──────────────────────────────────────────────────── */
 .disambiguate-hint {
   background: var(--amber-bg);

@@ -192,6 +192,14 @@
       <p><strong>Resolved from:</strong> {{ citation.resolved_from or "(unresolved)" }}</p>
       <p><strong>Verification:</strong> <span class="verification-badge status-{{ (citation.verification_status or 'UNKNOWN') | lower }}">{{ citation.verification_status or "UNKNOWN" }}</span></p>
       <p><strong>Detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
+      {% if citation.verification_status == "NOT_FOUND" and citation.search_links %}
+      <p class="help-verify-links">
+        <strong>Help me verify:</strong>
+        <a href="{{ citation.search_links.courtlistener }}" target="_blank" rel="noopener noreferrer">Search CourtListener</a>
+        |
+        <a href="{{ citation.search_links.google_scholar }}" target="_blank" rel="noopener noreferrer">Search Google Scholar</a>
+      </p>
+      {% endif %}
       <p class="snippet"><strong>Snippet:</strong> {{ citation.snippet or "(snippet unavailable)" }}</p>
       {% if citation.verification_status == "AMBIGUOUS" and citation.candidate_metadata and group.run_id %}
       <p class="disambiguate-hint">Multiple matches found. <a href="/history/{{ group.run_id }}">Go to history to select the correct case.</a></p>

@@ -7,13 +7,23 @@ that the citation-lookup API doesn't recognise.
 
 Search endpoint: GET /api/rest/v4/search/?type=o&q=<query>
 
-Resolution rules
-----------------
-• 0 results  → return None (caller keeps NOT_FOUND)
+Multi-strategy approach
+-----------------------
+Strategies are tried in order, most-precise first.  As soon as one returns
+1–3 results the search stops (max 3 API calls total).
+
+Strategy 1  Case name + year + CourtListener court_id extracted from text.
+Strategy 2  Case name + raw court abbreviation from parenthetical text
+            (e.g. "6th Cir.", "D. Me."), if different from Strategy 1.
+Strategy 3  Last names of the parties only (broadest — most likely to match).
+
+Resolution rules (per strategy)
+--------------------------------
+• 0 results  → try next strategy
 • 1 result   → VERIFIED with resolution_method="search_fallback"
 • 2-3 results → AMBIGUOUS (caller's heuristic pass may further resolve)
-• 4+ results → return None (query too broad; caller keeps NOT_FOUND)
-• No case name extracted → return None (query would be too broad)
+• 4+ results → try next strategy (query still too broad)
+• No case name extracted → skip to token-based fallback
 """
 
 from __future__ import annotations
@@ -45,6 +55,11 @@ _CASE_NAME_RE = re.compile(
     r"\b([A-Z][A-Za-z''\-\s]{1,40})\s+v\.\s+([A-Z][A-Za-z''\-\s]{1,40}?)(?=\s*[,;(]|\s*\d|\Z)",
 )
 
+# Pattern to extract court abbreviation from a parenthetical like "(6th Cir. 2003)"
+# or "(D. Me. 1998)".  Captures the non-year portion before the 4-digit year.
+# The first char may be a digit (e.g. "6th Cir.", "2d Cir.").
+_COURT_ABBR_RE = re.compile(r"\(([A-Za-z0-9][A-Za-z0-9.\s]{1,25}?)\s+\d{4}\)")
+
 
 # ── Query building ────────────────────────────────────────────────────────────
 
@@ -66,44 +81,109 @@ def _extract_case_name_from_snippet(snippet: str) -> str | None:
     return f"{plaintiff} v. {defendant}"
 
 
-def _build_search_query(citation: CitationResult) -> str | None:
-    """Build a CourtListener search query from a citation's text and snippet.
+def _extract_court_abbr_from_text(text: str) -> str | None:
+    """Extract a raw court abbreviation from a citation parenthetical.
 
-    Strategy (precision-first):
-    1. Try to extract a "X v. Y" case name from the snippet.  If found,
-       use that as the primary query (most precise).
-    2. Otherwise try to extract name tokens from the raw citation text.
-    3. If neither yields tokens, return None (skip the search entirely).
-
-    Returns None if no usable query can be built; this signals the caller
-    to skip the search and keep NOT_FOUND rather than producing noisy results.
+    E.g. "(6th Cir. 2003)" → "6th Cir.", "(D. Me. 1998)" → "D. Me.".
+    Returns None if no court abbreviation is found or the match looks like
+    a bare year-only parenthetical.
     """
-    # 1. Case name from snippet (highest precision)
-    if citation.snippet:
-        case_name = _extract_case_name_from_snippet(citation.snippet)
-        if case_name:
-            # Optionally append court/year for extra precision
-            extra: list[str] = []
-            year = extract_year(citation.snippet) or extract_year(citation.raw_text)
-            court_id = extract_court_id(citation.snippet) or extract_court_id(citation.raw_text)
-            if year:
-                extra.append(year)
-            if court_id:
-                extra.append(court_id)
-            query = case_name
-            if extra:
-                query += " " + " ".join(extra)
-            return query
+    m = _COURT_ABBR_RE.search(text)
+    if not m:
+        return None
+    abbr = m.group(1).strip()
+    # Filter out single-word noise like "en" or bare ordinals
+    if len(abbr) < 4 or abbr.lower() in {"en banc", "reh'g"}:
+        return None
+    return abbr
 
-    # 2. Name tokens from raw citation text
-    tokens = extract_name_tokens(citation.raw_text)
-    if not tokens and citation.snippet:
-        tokens = extract_name_tokens(citation.snippet)
-    if not tokens:
+
+def _extract_last_names(case_name: str) -> str | None:
+    """Return the first significant word from each party name.
+
+    "Bourne v. Arruda" → "Bourne Arruda"
+    "United States v. Jones Corp." → "United Jones"
+
+    Returns None if fewer than two words can be extracted.
+    """
+    parts = re.split(r"\bv\.\s+", case_name, flags=re.IGNORECASE)
+    if len(parts) < 2:
         return None
 
-    # Use up to 5 meaningful tokens to keep the query focused
-    return " ".join(tokens[:5])
+    last_names: list[str] = []
+    for party in parts:
+        first_word = party.strip().split()[0].rstrip(".,;") if party.strip() else ""
+        if len(first_word) >= 3:
+            last_names.append(first_word)
+
+    return " ".join(last_names) if len(last_names) >= 2 else None
+
+
+def _build_strategies(citation: CitationResult) -> list[str]:
+    """Return an ordered list of search queries to try, most-precise first.
+
+    Each string is a distinct query; duplicates are suppressed.  At most 3
+    strategies are returned so the caller makes at most 3 API calls.
+    """
+    strategies: list[str] = []
+    seen: set[str] = set()
+
+    def _add(q: str | None) -> None:
+        if q and q.strip() and q not in seen:
+            seen.add(q)
+            strategies.append(q)
+
+    # Determine the best case name available
+    case_name: str | None = None
+    for src in (citation.snippet, citation.raw_text):
+        if src:
+            case_name = _extract_case_name_from_snippet(src)
+            if case_name:
+                break
+
+    # Contextual metadata
+    year = None
+    court_id = None
+    court_abbr = None
+    for src in (citation.snippet, citation.raw_text):
+        if src:
+            if not year:
+                year = extract_year(src)
+            if not court_id:
+                court_id = extract_court_id(src)
+            if not court_abbr:
+                court_abbr = _extract_court_abbr_from_text(src)
+
+    if case_name:
+        # Strategy 1: case name + year + CourtListener court_id
+        extras_1: list[str] = []
+        if year:
+            extras_1.append(year)
+        if court_id:
+            extras_1.append(court_id)
+        q1 = case_name + (" " + " ".join(extras_1) if extras_1 else "")
+        _add(q1)
+
+        # Strategy 2: case name + raw court abbreviation (if distinct from S1)
+        if court_abbr:
+            extras_2: list[str] = [court_abbr]
+            if year:
+                extras_2.append(year)
+            q2 = case_name + " " + " ".join(extras_2)
+            _add(q2)
+
+        # Strategy 3: last names only (broadest)
+        _add(_extract_last_names(case_name))
+
+    else:
+        # Fallback when no "X v. Y" pattern found: use raw name tokens
+        tokens = extract_name_tokens(citation.raw_text)
+        if not tokens and citation.snippet:
+            tokens = extract_name_tokens(citation.snippet)
+        if tokens:
+            _add(" ".join(tokens[:5]))
+
+    return strategies[:3]
 
 
 # ── HTTP call ─────────────────────────────────────────────────────────────────
@@ -165,56 +245,17 @@ def _candidate_from_search_result(result: dict) -> dict | None:
     }
 
 
-# ── Public entry point ────────────────────────────────────────────────────────
-
-
-def try_search_fallback(
+def _evaluate_search_response(
+    payload: dict[str, Any],
     citation: CitationResult,
-    *,
-    token: str,
-    search_url: str = COURTLISTENER_SEARCH_URL,
-    timeout_seconds: int = 30,
+    query: str,
 ) -> VerificationResponse | None:
-    """Attempt to resolve a NOT_FOUND citation via the CourtListener search API.
+    """Convert a raw CourtListener search payload into a VerificationResponse.
 
-    Parameters
-    ----------
-    citation:
-        The citation whose status is NOT_FOUND.
-    token:
-        CourtListener API token.
-    search_url:
-        Override the search endpoint (useful in tests).
-    timeout_seconds:
-        HTTP timeout for the search request.
-
-    Returns
-    -------
-    ``VerificationResponse`` with status VERIFIED (single unambiguous match)
-    or AMBIGUOUS (2–3 candidates), or ``None`` if no results were found,
-    the query was too broad (4+ results), or no case name could be extracted
-    (caller should keep NOT_FOUND).
+    Returns None if the result count is 0 or too large (≥ 4), signalling the
+    caller to try the next strategy.  Returns VERIFIED for a single match,
+    or AMBIGUOUS for 2–3 matches.
     """
-    query = _build_search_query(citation)
-    if not query:
-        logger.debug("Search fallback skipped: no query tokens for %r", citation.raw_text)
-        return None
-
-    # Courtesy delay to respect CourtListener's rate limits
-    time.sleep(_FALLBACK_DELAY_SECONDS)
-
-    logger.info(
-        "Search fallback: querying CourtListener for %r (query=%r)",
-        citation.raw_text,
-        query,
-    )
-
-    payload = _search_courtlistener(
-        query, token=token, search_url=search_url, timeout_seconds=timeout_seconds
-    )
-    if payload is None:
-        return None
-
     raw_results = payload.get("results") or []
     count = payload.get("count", 0)
 
@@ -225,10 +266,10 @@ def try_search_fallback(
         len(raw_results),
     )
 
-    # If the API reports more results than our threshold, the query is too broad
+    # Too many results → query too broad; try next strategy
     if count > _MAX_USEFUL_RESULTS:
         logger.info(
-            "Search fallback: query too broad (%d total results) for %r — keeping NOT_FOUND",
+            "Search fallback: query too broad (%d total results) for %r — trying next strategy",
             count,
             citation.raw_text,
         )
@@ -279,3 +320,63 @@ def try_search_fallback(
         candidate_cluster_ids=cluster_ids or None,
         candidate_metadata=candidates,
     )
+
+
+# ── Public entry point ────────────────────────────────────────────────────────
+
+
+def try_search_fallback(
+    citation: CitationResult,
+    *,
+    token: str,
+    search_url: str = COURTLISTENER_SEARCH_URL,
+    timeout_seconds: int = 30,
+) -> VerificationResponse | None:
+    """Attempt to resolve a NOT_FOUND citation via the CourtListener search API.
+
+    Tries up to three progressively-broader search strategies, stopping as
+    soon as one returns 1–3 results.
+
+    Parameters
+    ----------
+    citation:
+        The citation whose status is NOT_FOUND.
+    token:
+        CourtListener API token.
+    search_url:
+        Override the search endpoint (useful in tests).
+    timeout_seconds:
+        HTTP timeout per search request.
+
+    Returns
+    -------
+    ``VerificationResponse`` with status VERIFIED (single unambiguous match)
+    or AMBIGUOUS (2–3 candidates), or ``None`` if all strategies fail
+    (caller should keep NOT_FOUND).
+    """
+    strategies = _build_strategies(citation)
+    if not strategies:
+        logger.debug("Search fallback skipped: no query tokens for %r", citation.raw_text)
+        return None
+
+    for query in strategies:
+        # Courtesy delay to respect CourtListener's rate limits
+        time.sleep(_FALLBACK_DELAY_SECONDS)
+
+        logger.info(
+            "Search fallback: querying CourtListener for %r (query=%r)",
+            citation.raw_text,
+            query,
+        )
+
+        payload = _search_courtlistener(
+            query, token=token, search_url=search_url, timeout_seconds=timeout_seconds
+        )
+        if payload is None:
+            continue
+
+        result = _evaluate_search_response(payload, citation, query)
+        if result is not None:
+            return result
+
+    return None
