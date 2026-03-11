@@ -36,19 +36,20 @@ def test_extract_case_name_no_pattern() -> None:
     assert _extract_case_name_from_snippet(snippet) is None
 
 
-def test_build_search_query_uses_snippet_case_name() -> None:
-    """_build_search_query prefers the case name extracted from the snippet."""
-    from app.services.search_fallback import _build_search_query
+def test_build_strategies_uses_snippet_case_name() -> None:
+    """_build_strategies first strategy includes the case name extracted from the snippet."""
+    from app.services.search_fallback import _build_strategies
 
     citation = CitationResult(
         raw_text="571 F. Supp. 3d 412",
         citation_type="FullCaseCitation",
         snippet="Marshall v. Amuso, 571 F. Supp. 3d 412 (E.D. Pa. 2021)",
     )
-    query = _build_search_query(citation)
-    assert query is not None
-    assert "Marshall" in query
-    assert "Amuso" in query
+    strategies = _build_strategies(citation)
+    assert strategies, "Should produce at least one strategy"
+    first = strategies[0]
+    assert "Marshall" in first
+    assert "Amuso" in first
 
 
 def test_search_fallback_too_many_results_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:

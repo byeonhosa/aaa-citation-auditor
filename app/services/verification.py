@@ -181,7 +181,11 @@ def map_courtlistener_result(result: dict[str, Any]) -> VerificationResponse:
         return VerificationResponse(status="VERIFIED", detail=detail)
 
     if status_code == 404:
-        detail = str(error_message).strip() if error_message else "No match found in CourtListener."
+        detail = (
+            str(error_message).strip()
+            if error_message
+            else "Citation not found in CourtListener. It may be a recent opinion or one not yet indexed."
+        )
         return VerificationResponse(status="NOT_FOUND", detail=detail)
 
     if status_code == 300:
@@ -298,7 +302,7 @@ class CourtListenerVerifier:
         if response.status_code == 404:
             return VerificationResponse(
                 status="NOT_FOUND",
-                detail="No match found in CourtListener.",
+                detail="Citation not found in CourtListener. It may be a recent opinion or one not yet indexed.",
             )
         if response.status_code == 400:
             return VerificationResponse(

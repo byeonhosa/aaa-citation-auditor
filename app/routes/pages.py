@@ -27,11 +27,13 @@ from app.services.audit import (
     extract_citations,
     resolve_id_citations,
 )
+from app.services.disambiguation import extract_case_name_from_text
 from app.services.exporters import (
     export_csv_for_run,
     export_markdown_for_run,
     export_print_html_context,
 )
+from app.services.search_links import build_search_links
 from app.services.settings_service import (
     _SENSITIVE_KEYS,
     _is_masked,
@@ -101,6 +103,19 @@ def citation_to_context(citation: Any) -> dict[str, Any]:
         except (ValueError, TypeError):
             raw_candidate_metadata = None
 
+    status = getattr(citation, "verification_status", None)
+    search_links: dict[str, str] | None = None
+    if status == "NOT_FOUND":
+        raw_text = getattr(citation, "raw_text", "") or ""
+        snippet = getattr(citation, "snippet", None)
+        case_name: str | None = None
+        for src in (snippet, raw_text):
+            if src:
+                case_name = extract_case_name_from_text(src)
+                if case_name:
+                    break
+        search_links = build_search_links(raw_text, case_name)
+
     return {
         "id": getattr(citation, "id", None),
         "raw_text": citation.raw_text,
@@ -113,6 +128,7 @@ def citation_to_context(citation: Any) -> dict[str, Any]:
         "candidate_metadata": raw_candidate_metadata,
         "selected_cluster_id": getattr(citation, "selected_cluster_id", None),
         "resolution_method": getattr(citation, "resolution_method", None),
+        "search_links": search_links,
     }
 
 
