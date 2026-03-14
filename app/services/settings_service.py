@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     pass
 
 # Keys treated as sensitive — displayed masked in the UI
-_SENSITIVE_KEYS = {"courtlistener_token", "openai_api_key", "govinfo_api_key"}
+_SENSITIVE_KEYS = {"courtlistener_token", "openai_api_key", "govinfo_api_key", "cap_api_key"}
 
 # Settings exposed in the UI, in the order they appear in the form
 _UI_KEYS: list[str] = [
@@ -36,6 +36,9 @@ _UI_KEYS: list[str] = [
     "govinfo_api_key",
     "federal_statute_verification",
     "federal_statute_timeout_seconds",
+    "cap_api_key",
+    "cap_fallback_enabled",
+    "cap_timeout_seconds",
     "max_file_size_mb",
     "max_files_per_batch",
     "max_citations_per_run",
@@ -253,6 +256,24 @@ class _EffectiveSettings:
         from app.settings import settings as _s
 
         return self._get_int("federal_statute_timeout_seconds", _s.federal_statute_timeout_seconds)
+
+    @property
+    def cap_api_key(self) -> str | None:
+        from app.settings import settings as _s
+
+        return self._get_str("cap_api_key", _s.cap_api_key)
+
+    @property
+    def cap_fallback_enabled(self) -> bool:
+        from app.settings import settings as _s
+
+        return self._get_bool("cap_fallback_enabled", _s.cap_fallback_enabled)
+
+    @property
+    def cap_timeout_seconds(self) -> int:
+        from app.settings import settings as _s
+
+        return self._get_int("cap_timeout_seconds", _s.cap_timeout_seconds)
 
     @property
     def max_file_size_mb(self) -> int:

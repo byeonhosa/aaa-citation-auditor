@@ -578,7 +578,9 @@ class TestSettingsPageCacheStats:
 
 def test_cacheable_methods_set() -> None:
     """_CACHEABLE_METHODS includes all expected resolution methods."""
-    expected = {"direct", "heuristic", "dedup", "search_fallback", "short_cite_match"}
+    expected = {
+        "direct", "heuristic", "dedup", "search_fallback", "cap_fallback", "short_cite_match"
+    }
     assert _CACHEABLE_METHODS == expected
 
 

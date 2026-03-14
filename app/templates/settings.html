@@ -134,6 +134,31 @@
 
   <div class="card">
     <div class="card-title">
+      <h3>Additional Case Law Sources</h3>
+    </div>
+    <p style="color:var(--text-2);font-size:0.875rem"><strong>Harvard Caselaw Access Project (CAP)</strong> — Secondary fallback for citations not found via CourtListener. When enabled, NOT_FOUND citations are re-queried against the CAP database. The CAP API was decommissioned in 2024; if it remains unavailable the pass is silently skipped. An optional API key permits higher-rate access.</p>
+
+    <label>
+      <input type="checkbox" name="cap_fallback_enabled"
+             {% if ui.cap_fallback_enabled in ("True", "true", "1", "yes") %}checked{% endif %}>
+      Enable CAP fallback
+    </label>
+    <small>When enabled, citations not found by CourtListener are re-queried against the Harvard Caselaw Access Project. Results are cached. The pass is silently skipped if the CAP API is unavailable.</small>
+
+    <label for="cap_api_key">CAP API Key (optional)</label>
+    <input type="password" id="cap_api_key" name="cap_api_key"
+           value="{{ ui.cap_api_key }}"
+           placeholder="Leave blank for anonymous access"
+           autocomplete="off">
+    <small>Leave as-is (showing ••••) to keep the current key unchanged. Leave blank for unauthenticated access (rate-limited).</small>
+
+    <label for="cap_timeout_seconds">CAP Request Timeout (seconds)</label>
+    <input type="number" id="cap_timeout_seconds" name="cap_timeout_seconds"
+           value="{{ ui.cap_timeout_seconds }}" min="5" max="60">
+  </div>
+
+  <div class="card">
+    <div class="card-title">
       <h3>Guardrails</h3>
     </div>
     <p style="color:var(--text-2);font-size:0.875rem">Limits to prevent processing of excessively large inputs.</p>

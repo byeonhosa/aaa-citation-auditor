@@ -381,6 +381,9 @@ async def run_audit(
             federal_statute_verification=eff.federal_statute_verification,
             govinfo_api_key=eff.govinfo_api_key,
             federal_statute_timeout_seconds=eff.federal_statute_timeout_seconds,
+            cap_fallback_enabled=eff.cap_fallback_enabled,
+            cap_api_key=eff.cap_api_key,
+            cap_timeout_seconds=eff.cap_timeout_seconds,
         )
         # Persist any new statute verification results to the cache
         with db_session() as db:
@@ -690,6 +693,9 @@ _FORM_KEYS = [
     "govinfo_api_key",
     "federal_statute_verification",
     "federal_statute_timeout_seconds",
+    "cap_api_key",
+    "cap_fallback_enabled",
+    "cap_timeout_seconds",
     "max_file_size_mb",
     "max_files_per_batch",
     "max_citations_per_run",
@@ -702,6 +708,7 @@ _CHECKBOX_KEYS = {
     "search_fallback_enabled",
     "virginia_statute_verification",
     "federal_statute_verification",
+    "cap_fallback_enabled",
 }
 
 
