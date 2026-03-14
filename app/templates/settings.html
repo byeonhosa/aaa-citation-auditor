@@ -95,7 +95,8 @@
     <div class="card-title">
       <h3>Statute Verification</h3>
     </div>
-    <p style="color:var(--text-2);font-size:0.875rem">Verify Virginia Code citations against the free Virginia LIS public API. When enabled, citations such as <code>Va. Code § 15.2-3400</code> are confirmed against the Code of Virginia and shown as <code>STATUTE_VERIFIED</code>.</p>
+
+    <p style="color:var(--text-2);font-size:0.875rem;margin-bottom:0.75rem"><strong>Virginia Code</strong> — Verify <code>Va. Code § X</code> citations against the free Virginia LIS public API. No API key required.</p>
 
     <label>
       <input type="checkbox" name="virginia_statute_verification"
@@ -104,9 +105,31 @@
     </label>
     <small>Uses the free, unauthenticated Virginia LIS API (law.lis.virginia.gov). Results are cached to avoid redundant lookups.</small>
 
-    <label for="virginia_statute_timeout_seconds">Request Timeout (seconds)</label>
+    <label for="virginia_statute_timeout_seconds">Virginia LIS Request Timeout (seconds)</label>
     <input type="number" id="virginia_statute_timeout_seconds" name="virginia_statute_timeout_seconds"
            value="{{ ui.virginia_statute_timeout_seconds }}" min="5" max="60">
+
+    <hr style="margin:1rem 0;border:none;border-top:1px solid var(--border)">
+
+    <p style="color:var(--text-2);font-size:0.875rem;margin-bottom:0.75rem"><strong>Federal U.S. Code</strong> — Verify <code>42 U.S.C. § 1983</code> citations against the GovInfo API. Requires a free API key from <a href="https://api.data.gov/signup/" target="_blank" rel="noopener noreferrer">api.data.gov</a>. Without a key, citations remain <code>STATUTE_DETECTED</code>.</p>
+
+    <label for="govinfo_api_key">GovInfo API Key</label>
+    <input type="password" id="govinfo_api_key" name="govinfo_api_key"
+           value="{{ ui.govinfo_api_key }}"
+           placeholder="Leave blank to keep existing key, or enter new key"
+           autocomplete="off">
+    <small>Leave as-is (showing ••••) to keep the current key unchanged. Get a free key at api.data.gov.</small>
+
+    <label>
+      <input type="checkbox" name="federal_statute_verification"
+             {% if ui.federal_statute_verification in ("True", "true", "1", "yes") %}checked{% endif %}>
+      Enable federal U.S. Code verification
+    </label>
+    <small>When enabled and a GovInfo API key is configured, U.S.C. citations are confirmed against the United States Code and shown as <code>STATUTE_VERIFIED</code>. Results are cached.</small>
+
+    <label for="federal_statute_timeout_seconds">GovInfo Request Timeout (seconds)</label>
+    <input type="number" id="federal_statute_timeout_seconds" name="federal_statute_timeout_seconds"
+           value="{{ ui.federal_statute_timeout_seconds }}" min="5" max="60">
   </div>
 
   <div class="card">

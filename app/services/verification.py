@@ -13,7 +13,12 @@ from app.services.audit import CitationResult
 from app.services.disambiguation import try_heuristic_resolution
 from app.services.http_client import post_with_retry
 from app.services.name_matching import case_names_match
-from app.services.statute_verification import VirginiaStatuteVerifier, parse_virginia_section
+from app.services.statute_verification import (
+    FederalStatuteVerifier,
+    VirginiaStatuteVerifier,
+    parse_federal_section,
+    parse_virginia_section,
+)
 
 # ── Short-citation matching helpers ──────────────────────────────────────────
 
@@ -580,6 +585,10 @@ def verify_citations(
     virginia_statute_verifier: VirginiaStatuteVerifier | None = None,
     statute_cache: dict[str, dict[str, Any]] | None = None,
     virginia_statute_timeout_seconds: int = 10,
+    federal_statute_verification: bool = True,
+    federal_statute_verifier: FederalStatuteVerifier | None = None,
+    govinfo_api_key: str | None = None,
+    federal_statute_timeout_seconds: int = 15,
 ) -> list[CitationResult]:
     # ── First pass: handle STATUTE, DERIVED, NO_TOKEN, and cache hits ──
     verifiable: list[CitationResult] = []
@@ -701,6 +710,67 @@ def verify_citations(
                 "Virginia statute verification: %d verified, %d not found",
                 va_verified,
                 va_not_found,
+            )
+
+    # ── Federal statute verification pass ───────────────────────────────────
+    # For STATUTE_DETECTED citations that look like U.S. Code references,
+    # attempt verification via the GovInfo API when an API key is configured.
+    # Citations that are not U.S.C., or where the API key is missing, are left
+    # as STATUTE_DETECTED.  Errors also keep STATUTE_DETECTED so we never
+    # downgrade a detected citation to something worse.
+    effective_api_key = govinfo_api_key or ""
+    if federal_statute_verification and effective_api_key:
+        active_fed_verifier = federal_statute_verifier or FederalStatuteVerifier(
+            api_key=effective_api_key,
+            timeout_seconds=federal_statute_timeout_seconds,
+        )
+        fed_verified = 0
+        fed_not_found = 0
+        for citation in citations:
+            if citation.verification_status != "STATUTE_DETECTED":
+                continue
+            parsed = parse_federal_section(citation.normalized_text or citation.raw_text)
+            if parsed is None:
+                continue  # not a U.S.C. citation
+
+            title, section = parsed
+            cache_key = f"usc:{title}-{section}"
+
+            cached_entry = (statute_cache or {}).get(cache_key)
+            if cached_entry is not None:
+                status = cached_entry["status"]
+                section_title = cached_entry.get("section_title")
+                logger.debug("Statute cache hit for %s → %s", cache_key, status)
+            else:
+                status, section_title = active_fed_verifier.verify(title, section)
+                if statute_cache is not None and status != "STATUTE_ERROR":
+                    statute_cache[cache_key] = {
+                        "status": status,
+                        "section_title": section_title,
+                    }
+
+            if status == "STATUTE_VERIFIED":
+                citation.verification_status = "STATUTE_VERIFIED"
+                title_suffix = f" — {section_title}" if section_title else ""
+                citation.verification_detail = (
+                    f"{title} U.S.C. § {section} confirmed in the United States"
+                    f" Code via GovInfo{title_suffix}."
+                )
+                fed_verified += 1
+            elif status == "STATUTE_NOT_FOUND":
+                citation.verification_detail = (
+                    f"{title} U.S.C. § {section} was not found in the United States"
+                    " Code. The section may have been repealed or the citation may"
+                    " contain a typo."
+                )
+                fed_not_found += 1
+            # STATUTE_ERROR → leave verification_detail unchanged
+
+        if fed_verified or fed_not_found:
+            logger.info(
+                "Federal statute verification: %d verified, %d not found",
+                fed_verified,
+                fed_not_found,
             )
 
     if not verifiable or not courtlistener_token:
