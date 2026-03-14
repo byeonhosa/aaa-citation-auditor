@@ -12,6 +12,7 @@ from aaa_db.models import AuditRun
 from aaa_db.repository import (
     clear_resolution_cache,
     get_audit_run,
+    get_cache_stats,
     get_citation,
     list_audit_runs,
     lookup_resolution_cache,
@@ -546,10 +547,11 @@ def resolve_citation_route(
 def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
     with db_session() as db:
         ui = get_all_ui_settings(db)
+        cache_stats = get_cache_stats(db)
     return templates.TemplateResponse(
         request=request,
         name="settings.html",
-        context={"title": "Settings", "ui": ui, "saved": saved},
+        context={"title": "Settings", "ui": ui, "saved": saved, "cache_stats": cache_stats},
     )
 
 
@@ -609,6 +611,7 @@ def clear_cache(request: Request) -> HTMLResponse:
     with db_session() as db:
         count = clear_resolution_cache(db)
         ui = get_all_ui_settings(db)
+        cache_stats = get_cache_stats(db)
     logger.info("Resolution cache cleared via settings: %d entries removed", count)
     return templates.TemplateResponse(
         request=request,
@@ -618,5 +621,6 @@ def clear_cache(request: Request) -> HTMLResponse:
             "ui": ui,
             "cache_cleared": True,
             "cache_cleared_count": count,
+            "cache_stats": cache_stats,
         },
     )

@@ -133,9 +133,25 @@
     <h3>Resolution Cache</h3>
   </div>
   <p style="color:var(--text-2);font-size:0.875rem">
-    The resolution cache stores past disambiguation choices (heuristic and user-selected) so
-    citations can be resolved instantly on future audits without querying CourtListener again.
+    The resolution cache stores past verification results so citations can be resolved instantly
+    on future audits without querying CourtListener again. Every successful verification —
+    direct matches, heuristic resolutions, search fallback results, and user selections — is
+    cached automatically.
   </p>
+  {% if cache_stats is defined and cache_stats %}
+  <div class="cache-stats" style="margin-bottom:0.75rem">
+    <p><strong>Cache entries:</strong> {{ cache_stats.total }}</p>
+    {% if cache_stats.recent_verifiable > 0 %}
+    <p>
+      <strong>Last run cache hit rate:</strong>
+      {{ cache_stats.recent_hits }} / {{ cache_stats.recent_verifiable }}
+      ({{ (cache_stats.recent_hits / cache_stats.recent_verifiable * 100) | round | int }}%)
+    </p>
+    {% elif cache_stats.total == 0 %}
+    <p style="color:var(--text-2);font-size:0.875rem">No cached resolutions yet. Run an audit to start building the cache.</p>
+    {% endif %}
+  </div>
+  {% endif %}
   {% if cache_cleared %}
   <p class="success-message">
     Resolution cache cleared — {{ cache_cleared_count }} entr{{ "y" if cache_cleared_count == 1 else "ies" }} removed.

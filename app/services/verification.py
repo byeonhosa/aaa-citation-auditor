@@ -178,14 +178,73 @@ def map_courtlistener_result(result: dict[str, Any]) -> VerificationResponse:
             if cluster_count
             else "CourtListener matched citation."
         )
-        return VerificationResponse(status="VERIFIED", detail=detail)
+        # Extract cluster metadata so the result can be cached.
+        # Only treat as a definitive single match when exactly one cluster is
+        # returned; multiple clusters on a 200 are treated as AMBIGUOUS so the
+        # user (or heuristic) can select the correct one.
+        candidate_metadata: list[dict] | None = None
+        candidate_cluster_ids: list[int] | None = None
+        if cluster_count == 1:
+            cluster = clusters[0]
+            cid = cluster.get("id")
+            if isinstance(cid, int):
+                candidate_metadata = [
+                    {
+                        "cluster_id": cid,
+                        "case_name": cluster.get("case_name")
+                        or cluster.get("case_name_short")
+                        or "",
+                        "court": cluster.get("court_id") or "",
+                        "date_filed": cluster.get("date_filed") or "",
+                    }
+                ]
+                candidate_cluster_ids = [cid]
+            return VerificationResponse(
+                status="VERIFIED",
+                detail=detail,
+                candidate_cluster_ids=candidate_cluster_ids,
+                candidate_metadata=candidate_metadata,
+            )
+        elif cluster_count > 1:
+            # Multiple clusters on a 200 response — surface as AMBIGUOUS
+            raw_candidates: list[dict] = []
+            for cluster in clusters:
+                if not isinstance(cluster, dict):
+                    continue
+                cid = cluster.get("id")
+                if isinstance(cid, int):
+                    raw_candidates.append(
+                        {
+                            "cluster_id": cid,
+                            "case_name": cluster.get("case_name")
+                            or cluster.get("case_name_short")
+                            or "",
+                            "court": cluster.get("court_id") or "",
+                            "date_filed": cluster.get("date_filed") or "",
+                        }
+                    )
+            candidate_metadata, _ = _deduplicate_candidates(raw_candidates)
+            candidate_cluster_ids = [c["cluster_id"] for c in candidate_metadata]
+            return VerificationResponse(
+                status="AMBIGUOUS",
+                detail="Multiple possible CourtListener matches.",
+                candidate_cluster_ids=candidate_cluster_ids or None,
+                candidate_metadata=candidate_metadata or None,
+            )
+        # cluster_count == 0
+        return VerificationResponse(
+            status="VERIFIED",
+            detail=detail,
+            candidate_cluster_ids=None,
+            candidate_metadata=None,
+        )
 
     if status_code == 404:
-        detail = (
-            str(error_message).strip()
-            if error_message
-            else "Citation not found in CourtListener. It may be a recent opinion or one not yet indexed."
+        _not_found_msg = (
+            "Citation not found in CourtListener."
+            " It may be a recent opinion or one not yet indexed."
         )
+        detail = str(error_message).strip() if error_message else _not_found_msg
         return VerificationResponse(status="NOT_FOUND", detail=detail)
 
     if status_code == 300:
@@ -302,7 +361,10 @@ class CourtListenerVerifier:
         if response.status_code == 404:
             return VerificationResponse(
                 status="NOT_FOUND",
-                detail="Citation not found in CourtListener. It may be a recent opinion or one not yet indexed.",
+                detail=(
+                    "Citation not found in CourtListener."
+                    " It may be a recent opinion or one not yet indexed."
+                ),
             )
         if response.status_code == 400:
             return VerificationResponse(
@@ -592,6 +654,21 @@ def verify_citations(
         _verify_batched(verifiable, active_verifier)
     else:
         _verify_single(verifiable, active_verifier)
+
+    # ── Post-verification: tag direct single-cluster matches ────────────────
+    # Newly-VERIFIED citations from the CourtListener 200 path have their
+    # cluster info in candidate_cluster_ids (populated by map_courtlistener_result
+    # above).  Set selected_cluster_id and resolution_method so these can be
+    # cached and appear consistently in the history UI.
+    for citation in verifiable:
+        if (
+            citation.verification_status == "VERIFIED"
+            and citation.selected_cluster_id is None
+            and citation.candidate_cluster_ids
+            and len(citation.candidate_cluster_ids) == 1
+        ):
+            citation.selected_cluster_id = citation.candidate_cluster_ids[0]
+            citation.resolution_method = "direct"
 
     # ── Third pass: dedup auto-resolve ──────────────────────────────────────
     # AMBIGUOUS citations reduced to a single unique candidate are resolved
