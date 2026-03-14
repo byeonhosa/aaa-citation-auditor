@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     virginia_statute_verification: bool = True
     virginia_statute_timeout_seconds: int = 10
 
+    govinfo_api_key: str | None = None
+    federal_statute_verification: bool = True
+    federal_statute_timeout_seconds: int = 15
+
     max_file_size_mb: int = 50
     max_files_per_batch: int = 10
     max_citations_per_run: int = 500

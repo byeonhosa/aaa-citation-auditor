@@ -72,11 +72,36 @@ _VA_CODE_RE = re.compile(
     re.VERBOSE | re.IGNORECASE,
 )
 
+# Pattern 3 — U.S. Code without periods and verbose "United States Code" form
+#   "42 USC § 1983"                              (no-period abbreviation)
+#   "Title 42, United States Code, Section 1983" (verbose form)
+#
+# NOTE: "42 U.S.C. § 1983" (dotted) is handled by both eyecite and
+# _DOTTED_ABBREV_RE; this pattern catches only the forms those miss.
+_USC_ALTERNATE_RE = re.compile(
+    r"""
+    (?:
+        (?:Title\s+)?                        # optional "Title "
+        \d+\s+                               # title number
+        USC                                  # USC — no periods
+        (?!\.)                               # not followed by period (avoids U.S.C.)
+        (?:\s+Ann\.)?                        # optional Ann.
+        |
+        Title\s+\d+\s*,?\s*                  # "Title 42,"
+        United\s+States\s+Code\s*,?\s*       # "United States Code,"
+    )
+    (?:§|Sec\.|Section)\s*                   # section indicator
+    \d[\dA-Za-z]*(?:\([^)]*\))?             # section number + optional sub
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
 # Central extensible list — add new state patterns here.
 # Each entry is a (label, compiled_pattern) tuple.
 _SUPPLEMENTAL_STATUTE_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("dotted_abbrev", _DOTTED_ABBREV_RE),
     ("va_code", _VA_CODE_RE),
+    ("usc_alternate", _USC_ALTERNATE_RE),
 ]
 
 

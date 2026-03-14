@@ -351,6 +351,9 @@ async def run_audit(
             virginia_statute_verification=eff.virginia_statute_verification,
             statute_cache=statute_cache,
             virginia_statute_timeout_seconds=eff.virginia_statute_timeout_seconds,
+            federal_statute_verification=eff.federal_statute_verification,
+            govinfo_api_key=eff.govinfo_api_key,
+            federal_statute_timeout_seconds=eff.federal_statute_timeout_seconds,
         )
         # Persist any new statute verification results to the cache
         with db_session() as db:
@@ -585,6 +588,11 @@ _FORM_KEYS = [
     "ai_memo_include_content",
     "ollama_base_url",
     "ollama_model",
+    "virginia_statute_verification",
+    "virginia_statute_timeout_seconds",
+    "govinfo_api_key",
+    "federal_statute_verification",
+    "federal_statute_timeout_seconds",
     "max_file_size_mb",
     "max_files_per_batch",
     "max_citations_per_run",
@@ -592,7 +600,12 @@ _FORM_KEYS = [
 ]
 
 # Form keys that are boolean checkboxes (absent = false when unchecked)
-_CHECKBOX_KEYS = {"ai_memo_include_content", "search_fallback_enabled"}
+_CHECKBOX_KEYS = {
+    "ai_memo_include_content",
+    "search_fallback_enabled",
+    "virginia_statute_verification",
+    "federal_statute_verification",
+}
 
 
 @router.post("/settings", response_class=HTMLResponse)
