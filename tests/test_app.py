@@ -3257,6 +3257,62 @@ def test_heuristic_resolution_writes_to_cache() -> None:
     assert cached.court == "ca6"
 
 
+def test_duplicate_citation_in_same_run_does_not_crash_cache_write() -> None:
+    """save_audit_run must not raise UNIQUE constraint error when the same normalized
+    citation appears more than once in the same document (e.g. a PDF that cites the
+    same case ten times).  Regression test for the SELECT-then-INSERT race within a
+    single batch that caused IntegrityError on commit."""
+    from aaa_db.models import CitationResolutionCache
+    from aaa_db.repository import save_audit_run
+
+    # Same citation twice — both VERIFIED via direct match
+    shared_meta = [
+        {"cluster_id": 99, "case_name": "Roe v. Wade", "court": None, "date_filed": "1973-01-22"}
+    ]
+    citations = [
+        CitationResult(
+            raw_text="410 U.S. 113",
+            normalized_text="410 U.S. 113",
+            citation_type="FullCaseCitation",
+            verification_status="VERIFIED",
+            verification_detail="found",
+            candidate_cluster_ids=[99],
+            candidate_metadata=shared_meta,
+            selected_cluster_id=99,
+            resolution_method="direct",
+        ),
+        CitationResult(
+            raw_text="410 U.S. 113",
+            normalized_text="410 U.S. 113",
+            citation_type="FullCaseCitation",
+            verification_status="VERIFIED",
+            verification_detail="found",
+            candidate_cluster_ids=[99],
+            candidate_metadata=shared_meta,
+            selected_cluster_id=99,
+            resolution_method="direct",
+        ),
+    ]
+
+    with SessionLocal() as db:
+        # Must not raise sqlalchemy.exc.IntegrityError
+        save_audit_run(
+            db,
+            source_type="text",
+            source_name=None,
+            input_text="See Roe v. Wade, 410 U.S. 113 (1973). Id. at 140.",
+            warnings=[],
+            citations=citations,
+        )
+
+    with SessionLocal() as db:
+        rows = db.query(CitationResolutionCache).filter_by(normalized_cite="410 U.S. 113").all()
+
+    # Exactly one cache entry, not two
+    assert len(rows) == 1
+    assert rows[0].selected_cluster_id == 99
+
+
 def test_history_detail_shows_heuristic_resolution_label() -> None:
     """History detail page should show 'Resolved automatically' for heuristic-resolved citations."""
     import json
