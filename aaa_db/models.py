@@ -23,6 +23,7 @@ class AuditRun(Base):
     ambiguous_count: Mapped[int] = mapped_column(Integer, default=0)
     derived_count: Mapped[int] = mapped_column(Integer, default=0)
     statute_count: Mapped[int] = mapped_column(Integer, default=0)
+    statute_verified_count: Mapped[int] = mapped_column(Integer, default=0)
     error_count: Mapped[int] = mapped_column(Integer, default=0)
     unverified_no_token_count: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -81,6 +82,7 @@ class TelemetryEvent(Base):
     ambiguous_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     derived_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     statute_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    statute_verified_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     unverified_no_token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -115,3 +117,22 @@ class AppSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (Index("ix_app_settings_key", "key", unique=True),)
+
+
+class StatuteVerificationCache(Base):
+    """Caches Virginia Code section verification results to avoid redundant API calls."""
+
+    __tablename__ = "statute_verification_cache"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    section_number: Mapped[str] = mapped_column(String(128))
+    # "STATUTE_VERIFIED" or "STATUTE_NOT_FOUND"
+    status: Mapped[str] = mapped_column(String(32))
+    section_title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_statute_verification_cache_section_number", "section_number", unique=True),
+    )

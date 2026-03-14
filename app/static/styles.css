@@ -400,6 +400,7 @@ label:has(input[type="checkbox"]) {
 .status-ambiguous          { background: #fff7ed;            color: #c2410c; }
 .status-derived            { background: var(--blue-bg);    color: var(--blue); }
 .status-statute_detected   { background: var(--teal-bg);    color: var(--teal); }
+.status-statute_verified   { background: var(--green-bg);   color: var(--green); }
 .status-error              { background: var(--red-bg);     color: var(--red); }
 .status-unverified_no_token { background: var(--surface-2); color: var(--text-2); }
 

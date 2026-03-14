@@ -31,6 +31,8 @@ _UI_KEYS: list[str] = [
     "ai_memo_include_content",
     "ollama_base_url",
     "ollama_model",
+    "virginia_statute_verification",
+    "virginia_statute_timeout_seconds",
     "max_file_size_mb",
     "max_files_per_batch",
     "max_citations_per_run",
@@ -216,6 +218,20 @@ class _EffectiveSettings:
         from app.settings import settings as _s
 
         return self._get_int("ai_request_timeout_seconds", _s.ai_request_timeout_seconds)
+
+    @property
+    def virginia_statute_verification(self) -> bool:
+        from app.settings import settings as _s
+
+        return self._get_bool("virginia_statute_verification", _s.virginia_statute_verification)
+
+    @property
+    def virginia_statute_timeout_seconds(self) -> int:
+        from app.settings import settings as _s
+
+        return self._get_int(
+            "virginia_statute_timeout_seconds", _s.virginia_statute_timeout_seconds
+        )
 
     @property
     def max_file_size_mb(self) -> int:

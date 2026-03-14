@@ -93,6 +93,24 @@
 
   <div class="card">
     <div class="card-title">
+      <h3>Statute Verification</h3>
+    </div>
+    <p style="color:var(--text-2);font-size:0.875rem">Verify Virginia Code citations against the free Virginia LIS public API. When enabled, citations such as <code>Va. Code § 15.2-3400</code> are confirmed against the Code of Virginia and shown as <code>STATUTE_VERIFIED</code>.</p>
+
+    <label>
+      <input type="checkbox" name="virginia_statute_verification"
+             {% if ui.virginia_statute_verification in ("True", "true", "1", "yes") %}checked{% endif %}>
+      Enable Virginia Code verification
+    </label>
+    <small>Uses the free, unauthenticated Virginia LIS API (law.lis.virginia.gov). Results are cached to avoid redundant lookups.</small>
+
+    <label for="virginia_statute_timeout_seconds">Request Timeout (seconds)</label>
+    <input type="number" id="virginia_statute_timeout_seconds" name="virginia_statute_timeout_seconds"
+           value="{{ ui.virginia_statute_timeout_seconds }}" min="5" max="60">
+  </div>
+
+  <div class="card">
+    <div class="card-title">
       <h3>Guardrails</h3>
     </div>
     <p style="color:var(--text-2);font-size:0.875rem">Limits to prevent processing of excessively large inputs.</p>

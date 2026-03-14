@@ -46,6 +46,7 @@ def clean_db() -> None:
         Base,
         CitationResolutionCache,
         CitationResultRecord,
+        StatuteVerificationCache,
         TelemetryEvent,
     )
 
@@ -55,6 +56,7 @@ def clean_db() -> None:
         db.query(AuditRun).delete()
         db.query(TelemetryEvent).delete()
         db.query(CitationResolutionCache).delete()
+        db.query(StatuteVerificationCache).delete()
         db.query(AppSettings).delete()
         db.commit()
 

@@ -6,7 +6,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from aaa_db.models import AuditRun, CitationResolutionCache, CitationResultRecord
+from aaa_db.models import (
+    AuditRun,
+    CitationResolutionCache,
+    CitationResultRecord,
+    StatuteVerificationCache,
+)
 from app.services.audit import CitationResult
 
 logger = logging.getLogger(__name__)
@@ -68,6 +73,7 @@ def save_audit_run(
         "UNVERIFIED_NO_TOKEN": 0,
         "DERIVED": 0,
         "STATUTE_DETECTED": 0,
+        "STATUTE_VERIFIED": 0,
     }
 
     for citation in citations:
@@ -83,6 +89,7 @@ def save_audit_run(
         ambiguous_count=status_counts["AMBIGUOUS"],
         derived_count=status_counts["DERIVED"],
         statute_count=status_counts["STATUTE_DETECTED"],
+        statute_verified_count=status_counts["STATUTE_VERIFIED"],
         error_count=status_counts["ERROR"],
         unverified_no_token_count=status_counts["UNVERIFIED_NO_TOKEN"],
         input_text_excerpt=_build_excerpt(source_type, input_text),
@@ -299,6 +306,7 @@ def resolve_citation(
             "UNVERIFIED_NO_TOKEN": 0,
             "DERIVED": 0,
             "STATUTE_DETECTED": 0,
+            "STATUTE_VERIFIED": 0,
         }
         for c in all_citations:
             if c.verification_status in status_counts:
@@ -310,6 +318,7 @@ def resolve_citation(
         run.unverified_no_token_count = status_counts["UNVERIFIED_NO_TOKEN"]
         run.derived_count = status_counts["DERIVED"]
         run.statute_count = status_counts["STATUTE_DETECTED"]
+        run.statute_verified_count = status_counts["STATUTE_VERIFIED"]
         db.commit()
 
     logger.info(
@@ -339,7 +348,7 @@ def get_cache_stats(db: Session) -> dict[str, Any]:
     recent_hits = 0
     recent_verifiable = 0
     if recent_run_id is not None:
-        _skip = ("STATUTE_DETECTED", "DERIVED", "UNVERIFIED_NO_TOKEN")
+        _skip = ("STATUTE_DETECTED", "STATUTE_VERIFIED", "DERIVED", "UNVERIFIED_NO_TOKEN")
         recent_verifiable = (
             db.query(CitationResultRecord)
             .filter(
@@ -362,3 +371,48 @@ def get_cache_stats(db: Session) -> dict[str, Any]:
         "recent_hits": recent_hits,
         "recent_verifiable": recent_verifiable,
     }
+
+
+# ── Statute verification cache ────────────────────────────────────────────────
+
+
+def lookup_statute_cache(db: Session) -> dict[str, dict[str, Any]]:
+    """Return all statute cache entries as a dict keyed by section_number.
+
+    Each value is ``{"status": ..., "section_title": ...}``.
+    """
+    rows = db.scalars(select(StatuteVerificationCache)).all()
+    return {
+        row.section_number: {
+            "status": row.status,
+            "section_title": row.section_title,
+        }
+        for row in rows
+    }
+
+
+def save_statute_cache_entry(
+    db: Session,
+    *,
+    section_number: str,
+    status: str,
+    section_title: str | None,
+) -> None:
+    """Insert or update a StatuteVerificationCache row."""
+    cached = db.scalar(
+        select(StatuteVerificationCache).where(
+            StatuteVerificationCache.section_number == section_number
+        )
+    )
+    if cached:
+        cached.status = status
+        cached.section_title = section_title
+    else:
+        db.add(
+            StatuteVerificationCache(
+                section_number=section_number,
+                status=status,
+                section_title=section_title,
+            )
+        )
+    db.commit()

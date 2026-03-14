@@ -13,6 +13,7 @@ from app.services.audit import CitationResult
 from app.services.disambiguation import try_heuristic_resolution
 from app.services.http_client import post_with_retry
 from app.services.name_matching import case_names_match
+from app.services.statute_verification import VirginiaStatuteVerifier, parse_virginia_section
 
 # ── Short-citation matching helpers ──────────────────────────────────────────
 
@@ -575,6 +576,10 @@ def verify_citations(
     resolution_cache: dict[str, Any] | None = None,
     search_fallback_enabled: bool = True,
     search_url: str | None = None,
+    virginia_statute_verification: bool = True,
+    virginia_statute_verifier: VirginiaStatuteVerifier | None = None,
+    statute_cache: dict[str, dict[str, Any]] | None = None,
+    virginia_statute_timeout_seconds: int = 10,
 ) -> list[CitationResult]:
     # ── First pass: handle STATUTE, DERIVED, NO_TOKEN, and cache hits ──
     verifiable: list[CitationResult] = []
@@ -638,6 +643,65 @@ def verify_citations(
         derived_count,
         cache_count,
     )
+
+    # ── Virginia statute verification pass ──────────────────────────────────
+    # For citations marked STATUTE_DETECTED, attempt Virginia Code verification
+    # when the citation clearly references the Code of Virginia.  Non-Virginia
+    # statutes are left as STATUTE_DETECTED; errors also keep STATUTE_DETECTED
+    # so we never downgrade.
+    if virginia_statute_verification:
+        active_va_verifier = virginia_statute_verifier or VirginiaStatuteVerifier(
+            timeout_seconds=virginia_statute_timeout_seconds
+        )
+        va_verified = 0
+        va_not_found = 0
+        for citation in citations:
+            if citation.verification_status != "STATUTE_DETECTED":
+                continue
+            section_number = parse_virginia_section(citation.normalized_text or citation.raw_text)
+            if section_number is None:
+                continue  # not a Virginia Code citation
+
+            # Check statute cache before hitting the API
+            cached_entry = (statute_cache or {}).get(section_number)
+            if cached_entry is not None:
+                status = cached_entry["status"]
+                section_title = cached_entry.get("section_title")
+                logger.debug("Statute cache hit for %s → %s", section_number, status)
+            else:
+                status, section_title = active_va_verifier.verify(section_number)
+                # Populate in-memory cache so later citations in the same run
+                # don't repeat the lookup (the DB write is handled by the caller)
+                if statute_cache is not None and status != "STATUTE_ERROR":
+                    statute_cache[section_number] = {
+                        "status": status,
+                        "section_title": section_title,
+                    }
+
+            if status == "STATUTE_VERIFIED":
+                citation.verification_status = "STATUTE_VERIFIED"
+                title_suffix = f" — {section_title}" if section_title else ""
+                citation.verification_detail = (
+                    f"Virginia Code § {section_number} confirmed in the Code of Virginia"
+                    f"{title_suffix}."
+                )
+                va_verified += 1
+            elif status == "STATUTE_NOT_FOUND":
+                # Keep STATUTE_DETECTED; update detail to reflect the lookup result
+                citation.verification_detail = (
+                    f"Virginia Code § {section_number} was not found in the"
+                    " Code of Virginia. The section may have been repealed or"
+                    " the citation may contain a typo."
+                )
+                va_not_found += 1
+            # STATUTE_ERROR → leave verification_detail unchanged
+
+        if va_verified or va_not_found:
+            logger.info(
+                "Virginia statute verification: %d verified, %d not found",
+                va_verified,
+                va_not_found,
+            )
 
     if not verifiable or not courtlistener_token:
         return citations
