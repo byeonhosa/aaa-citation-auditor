@@ -11,6 +11,26 @@ from app.services.audit import CitationResult
 
 logger = logging.getLogger(__name__)
 
+# Resolution-method confidence levels (higher = more trustworthy).
+# When a cache entry already exists, only update it if the new resolution has
+# equal or higher confidence — never downgrade a high-quality entry.
+_RESOLUTION_CONFIDENCE: dict[str, int] = {
+    "user": 5,
+    "heuristic": 4,
+    "direct": 3,
+    "dedup": 3,
+    "search_fallback": 2,
+    "short_cite_match": 1,
+    "cache": 0,  # never re-cache a cache hit
+}
+
+# Methods that are eligible to be written into the cache by save_audit_run.
+# "user" is excluded here because it is cached immediately by resolve_citation().
+# "cache" is excluded because it is already a cache hit.
+_CACHEABLE_METHODS = frozenset(
+    {"direct", "heuristic", "dedup", "search_fallback", "short_cite_match"}
+)
+
 EXCERPT_LENGTH = 200
 
 
@@ -94,16 +114,26 @@ def save_audit_run(
     db.commit()
     db.refresh(audit_run)
 
-    # Write heuristic resolutions to the resolution cache
+    # Write all successful verifications to the resolution cache.
+    # This covers direct CourtListener matches, dedup, heuristic, search fallback,
+    # and short-cite matches — so any citation verified once is never re-queried.
+    cached_count = 0
     for citation in citations:
-        if citation.resolution_method == "heuristic" and citation.selected_cluster_id is not None:
+        if (
+            citation.verification_status == "VERIFIED"
+            and citation.selected_cluster_id is not None
+            and citation.resolution_method in _CACHEABLE_METHODS
+        ):
             _upsert_resolution_cache(
                 db,
                 normalized_cite=citation.normalized_text or citation.raw_text,
                 selected_cluster_id=citation.selected_cluster_id,
                 candidate_metadata=citation.candidate_metadata,
-                resolution_method="heuristic",
+                resolution_method=citation.resolution_method,
             )
+            cached_count += 1
+    if cached_count:
+        logger.info("Resolution cache: wrote %d new/updated entr(ies)", cached_count)
     db.commit()
     logger.info(
         "Audit run saved: id=%d, source_type=%s, citations=%d",
@@ -140,6 +170,20 @@ def _upsert_resolution_cache(
         )
     )
     if cached:
+        # Only update if the new resolution is at least as confident as the
+        # existing one — never downgrade a user selection to a heuristic hit.
+        existing_conf = _RESOLUTION_CONFIDENCE.get(cached.resolution_method, 0)
+        new_conf = _RESOLUTION_CONFIDENCE.get(resolution_method, 0)
+        if new_conf < existing_conf:
+            logger.debug(
+                "Cache: skipping update for %r — existing method %r (%d) outranks %r (%d)",
+                normalized_cite,
+                cached.resolution_method,
+                existing_conf,
+                resolution_method,
+                new_conf,
+            )
+            return
         cached.selected_cluster_id = selected_cluster_id
         cached.case_name = case_name
         cached.court = court
@@ -275,3 +319,46 @@ def resolve_citation(
         resolution_method,
     )
     return citation
+
+
+def get_cache_stats(db: Session) -> dict[str, Any]:
+    """Return cache statistics for the settings page.
+
+    Returns a dict with:
+        total           – total number of cached resolutions
+        recent_hits     – cache hits in the most recent audit run
+        recent_verifiable – case-law citations attempted in the most recent run
+    """
+    total = db.query(CitationResolutionCache).count()
+
+    # Most recent audit run
+    recent_run_id = db.scalar(
+        select(AuditRun.id).order_by(AuditRun.created_at.desc(), AuditRun.id.desc()).limit(1)
+    )
+
+    recent_hits = 0
+    recent_verifiable = 0
+    if recent_run_id is not None:
+        _skip = ("STATUTE_DETECTED", "DERIVED", "UNVERIFIED_NO_TOKEN")
+        recent_verifiable = (
+            db.query(CitationResultRecord)
+            .filter(
+                CitationResultRecord.audit_run_id == recent_run_id,
+                CitationResultRecord.verification_status.notin_(_skip),
+            )
+            .count()
+        )
+        recent_hits = (
+            db.query(CitationResultRecord)
+            .filter(
+                CitationResultRecord.audit_run_id == recent_run_id,
+                CitationResultRecord.resolution_method == "cache",
+            )
+            .count()
+        )
+
+    return {
+        "total": total,
+        "recent_hits": recent_hits,
+        "recent_verifiable": recent_verifiable,
+    }
