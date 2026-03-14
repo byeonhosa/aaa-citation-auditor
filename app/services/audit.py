@@ -15,17 +15,23 @@ from fastapi import UploadFile
 
 logger = logging.getLogger(__name__)
 
-# ── State statute patterns eyecite may miss ─────────────────────────────────
+# ── Supplemental statute patterns (eyecite does not cover these) ─────────────
 #
-# Eyecite handles federal statutes (U.S.C.) and most state codes well, but
-# misses some formats where a numeric title prefix precedes the abbreviation
-# (e.g. "20-A M.R.S. § 1001(20)" — Maine Revised Statutes).
+# Eyecite is a case-law citation parser.  It handles U.S.C. and a handful of
+# state codes, but misses many common statute formats.  The patterns below are
+# applied as a supplemental pass *after* eyecite extraction and are deduplicated
+# against eyecite results by position so no citation is counted twice.
 #
-# This regex conservatively matches:
-#   • Prefixed abbreviations:  "20-A M.R.S. § 1001(20)", "16 V.S.A. § 833"
-#   • Unprefixed dotted abbrs: "M.R.S. § 1001", "R.S.Mo. § 162.670"
-#   • Descriptive forms:       "Rev. Stat. § 123", "Gen. Stat. § 456"
-_STATE_STATUTE_RE = re.compile(
+# To add support for a new state, append a (label, compiled_regex) tuple to
+# _SUPPLEMENTAL_STATUTE_PATTERNS.  Each pattern must include the section
+# symbol and number so the full citation text is captured.
+#
+# Pattern 1 — dotted-abbreviation formats
+#   "20-A M.R.S. § 1001(20)"  (Maine)
+#   "16 V.S.A. § 833"          (Vermont)
+#   "R.S.Mo. § 162.670"        (Missouri)
+#   "Rev. Stat. § 123"
+_DOTTED_ABBREV_RE = re.compile(
     r"""
     (?:\b\d+(?:-[A-Z])?\s+)?          # optional numeric title prefix: "20-A " / "16 "
     (?:
@@ -37,11 +43,41 @@ _STATE_STATUTE_RE = re.compile(
         \s+(?:Stat|Code)\.            # "Stat." or "Code."
         (?:\s+Ann\.)?                 # optional "Ann." suffix
     )
-    \s*§\s*                           # section symbol
+    \s*(?:§|Sec\.|Section)\s*         # section indicator: § or Sec. or Section
     \d[\d.()\-]*                      # section number (e.g., 1001, 162.670, 1001(20))
     """,
-    re.VERBOSE | re.UNICODE,
+    re.VERBOSE | re.UNICODE | re.IGNORECASE,
 )
+
+# Pattern 2 — Virginia Code named-code formats (eyecite misses these entirely)
+#   "Va. Code § 15.2-3400"       "Va. Code Section 15.2-3400"
+#   "Va. Code Ann. § 15.2-3400"  "Va. Code Sec. 15.2-3400"
+#   "Code of Virginia § 18.2-308"
+#   "Code of Va. § 46.2-100"
+#   "Virginia Code § 15.2-3400"
+#   "Code of Virginia, 1950, as amended, § 15.2-1300"
+_VA_CODE_RE = re.compile(
+    r"""
+    (?:
+        (?:Va\.?\s+|Virginia\s+)Code(?:\.?\s+Ann\.?)?  # Va. Code [Ann.] | Virginia Code
+        | Code\s+of\s+(?:Va\.?|Virginia)               # Code of Virginia | Code of Va.
+          (?:[^§\n]{0,50})?                             # optional year / parenthetical
+    )
+    \s*,?\s*                                            # optional comma + whitespace
+    (?:§|Sec\.|Section)\s*                              # section indicator: § or Sec. or Section
+    \d+(?:\.\d+)?                                       # title: 1 | 15.2 | 46.2
+    [-\N{EN DASH}]                                      # hyphen or en-dash
+    \d[\dA-Z]*(?:[.:\-]\d[\dA-Z]*)*                    # section number
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+# Central extensible list — add new state patterns here.
+# Each entry is a (label, compiled_pattern) tuple.
+_SUPPLEMENTAL_STATUTE_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("dotted_abbrev", _DOTTED_ABBREV_RE),
+    ("va_code", _VA_CODE_RE),
+]
 
 
 @dataclass
@@ -87,23 +123,55 @@ def _build_snippet(text: str, start: int, end: int, window: int = 80) -> str:
     return text[snippet_start:snippet_end].strip().replace("\n", " ")
 
 
-def _find_undetected_state_statutes(
+def _spans_overlap(a_start: int, a_end: int, b_start: int, b_end: int) -> bool:
+    """Return True if the two half-open character ranges [a, b) and [c, d) overlap."""
+    return a_start < b_end and b_start < a_end
+
+
+def _find_supplemental_statutes(
     text: str,
+    existing_spans: list[tuple[int, int]],
     existing_results: list[CitationResult],
 ) -> list[CitationResult]:
-    """Secondary regex pass for state statute formats eyecite may miss.
+    """Supplemental regex pass for statute formats eyecite does not extract.
 
-    Only adds citations whose raw text is not already present in
-    *existing_results* as a FullLawCitation (case-insensitive).
+    Uses *position-based* deduplication: a regex match is skipped when its
+    character range overlaps with any span already claimed by an eyecite result
+    (or a prior supplemental match in this call).  This prevents double-counting
+    when both eyecite and a supplemental pattern cover the same text region.
+
+    A secondary text-based check is also applied so that two different patterns
+    matching the *same literal string at different positions* produce only one
+    CitationResult per unique raw text (matching eyecite's own behaviour for
+    repeated statute citations).
     """
-    existing_law_texts: set[str] = {
+    # Seed with existing FullLawCitation texts so we don't re-add what eyecite
+    # already found by text string (belt-and-suspenders alongside position check).
+    seen_texts: set[str] = {
         r.raw_text.strip().lower() for r in existing_results if r.citation_type == "FullLawCitation"
     }
+    # Work on a *copy* of the spans list so we don't mutate the caller's list
+    # while still tracking spans claimed by new matches within this call.
+    occupied: list[tuple[int, int]] = list(existing_spans)
+
     extra: list[CitationResult] = []
-    for m in _STATE_STATUTE_RE.finditer(text):
-        matched = m.group(0).strip()
-        if matched.lower() not in existing_law_texts:
-            snippet = _build_snippet(text, m.start(), m.end())
+    for _label, pattern in _SUPPLEMENTAL_STATUTE_PATTERNS:
+        for m in pattern.finditer(text):
+            matched = m.group(0).strip()
+            key = matched.lower()
+
+            # Text dedup — skip if this exact string is already known
+            if key in seen_texts:
+                continue
+
+            # Position dedup — skip if this match overlaps an existing span
+            m_start, m_end = m.start(), m.end()
+            if any(_spans_overlap(m_start, m_end, s, e) for s, e in occupied):
+                continue
+
+            seen_texts.add(key)
+            occupied.append((m_start, m_end))
+            snippet = _build_snippet(text, m_start, m_end)
             extra.append(
                 CitationResult(
                     raw_text=matched,
@@ -111,8 +179,7 @@ def _find_undetected_state_statutes(
                     snippet=snippet,
                 )
             )
-            existing_law_texts.add(matched.lower())
-            logger.debug("State statute detected (post-extraction): %r", matched)
+            logger.debug("Supplemental statute detected (%s): %r", _label, matched)
     return extra
 
 
@@ -196,6 +263,9 @@ def extract_citations(text: str) -> tuple[list[CitationResult], list[str]]:
 
     search_cursor = 0
     lower_text = text.lower()
+    # Track character spans of eyecite-extracted citations for position-based
+    # deduplication in the supplemental statute pass below.
+    eyecite_spans: list[tuple[int, int]] = []
 
     for citation in get_citations(text):
         raw_value = _value_or_call(getattr(citation, "matched_text", None))
@@ -210,7 +280,13 @@ def extract_citations(text: str) -> tuple[list[CitationResult], list[str]]:
                 idx = lower_text.find(raw_text.lower())
             if idx != -1:
                 search_cursor = idx + len(raw_text)
-                snippet = _build_snippet(text, idx, idx + len(raw_text))
+                span_end = idx + len(raw_text)
+                snippet = _build_snippet(text, idx, span_end)
+                # Only claim a span for real citations (alphanumeric content).
+                # Bare § symbols extracted by eyecite must not block supplemental
+                # statute patterns whose match regions happen to contain that §.
+                if _has_alphanumeric(raw_text):
+                    eyecite_spans.append((idx, span_end))
 
         results.append(
             CitationResult(
@@ -221,10 +297,12 @@ def extract_citations(text: str) -> tuple[list[CitationResult], list[str]]:
             )
         )
 
-    # Secondary pass: catch state statute formats eyecite may miss
-    extra = _find_undetected_state_statutes(text, results)
+    # Supplemental pass: catch statute formats eyecite does not extract
+    # (e.g. "Va. Code § 15.2-3400", "20-A M.R.S. § 1001").
+    # Position-based deduplication prevents double-counting with eyecite results.
+    extra = _find_supplemental_statutes(text, eyecite_spans, results)
     if extra:
-        logger.info("State statute post-extraction: found %d additional statute(s)", len(extra))
+        logger.info("Supplemental statute extraction: found %d additional statute(s)", len(extra))
         results.extend(extra)
 
     # Filter pass: remove bare section symbols and other fragments eyecite
