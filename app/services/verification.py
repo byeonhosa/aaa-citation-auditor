@@ -186,6 +186,8 @@ def map_courtlistener_result(result: dict[str, Any]) -> VerificationResponse:
         candidate_cluster_ids: list[int] | None = None
         if cluster_count == 1:
             cluster = clusters[0]
+            if not isinstance(cluster, dict):
+                return VerificationResponse(status="VERIFIED", detail=detail)
             cid = cluster.get("id")
             if isinstance(cid, int):
                 candidate_metadata = [
