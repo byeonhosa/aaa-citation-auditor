@@ -43,6 +43,8 @@ from app.services.exporters import (
     export_markdown_for_run,
     export_print_html_context,
 )
+from app.services.local_index import LocalIndexLookup
+from app.services.local_index import get_stats as get_local_index_stats
 from app.services.provenance import PROVENANCE_HELP, get_provenance, get_provenance_breakdown
 from app.services.search_links import build_search_links
 from app.services.settings_service import (
@@ -367,6 +369,7 @@ async def run_audit(
         with db_session() as db:
             cache = lookup_resolution_cache(db)
             statute_cache = lookup_statute_cache(db)
+            local_index = LocalIndexLookup(db) if eff.local_index_enabled else None
         citation_results = verify_citations(
             citation_results,
             courtlistener_token=eff.courtlistener_token,
@@ -384,6 +387,8 @@ async def run_audit(
             cap_fallback_enabled=eff.cap_fallback_enabled,
             cap_api_key=eff.cap_api_key,
             cap_timeout_seconds=eff.cap_timeout_seconds,
+            local_index=local_index,
+            local_index_enabled=eff.local_index_enabled,
         )
         # Persist any new statute verification results to the cache
         with db_session() as db:
@@ -668,10 +673,17 @@ def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
     with db_session() as db:
         ui = get_all_ui_settings(db)
         cache_stats = get_cache_stats(db)
+        local_index_stats = get_local_index_stats(db)
     return templates.TemplateResponse(
         request=request,
         name="settings.html",
-        context={"title": "Settings", "ui": ui, "saved": saved, "cache_stats": cache_stats},
+        context={
+            "title": "Settings",
+            "ui": ui,
+            "saved": saved,
+            "cache_stats": cache_stats,
+            "local_index_stats": local_index_stats,
+        },
     )
 
 
@@ -696,6 +708,7 @@ _FORM_KEYS = [
     "cap_api_key",
     "cap_fallback_enabled",
     "cap_timeout_seconds",
+    "local_index_enabled",
     "max_file_size_mb",
     "max_files_per_batch",
     "max_citations_per_run",
@@ -709,6 +722,7 @@ _CHECKBOX_KEYS = {
     "virginia_statute_verification",
     "federal_statute_verification",
     "cap_fallback_enabled",
+    "local_index_enabled",
 }
 
 
@@ -746,6 +760,7 @@ def clear_cache(request: Request) -> HTMLResponse:
         count = clear_resolution_cache(db)
         ui = get_all_ui_settings(db)
         cache_stats = get_cache_stats(db)
+        local_index_stats = get_local_index_stats(db)
     logger.info("Resolution cache cleared via settings: %d entries removed", count)
     return templates.TemplateResponse(
         request=request,
@@ -756,5 +771,6 @@ def clear_cache(request: Request) -> HTMLResponse:
             "cache_cleared": True,
             "cache_cleared_count": count,
             "cache_stats": cache_stats,
+            "local_index_stats": local_index_stats,
         },
     )

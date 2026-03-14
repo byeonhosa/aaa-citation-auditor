@@ -39,6 +39,7 @@ _UI_KEYS: list[str] = [
     "cap_api_key",
     "cap_fallback_enabled",
     "cap_timeout_seconds",
+    "local_index_enabled",
     "max_file_size_mb",
     "max_files_per_batch",
     "max_citations_per_run",
@@ -274,6 +275,12 @@ class _EffectiveSettings:
         from app.settings import settings as _s
 
         return self._get_int("cap_timeout_seconds", _s.cap_timeout_seconds)
+
+    @property
+    def local_index_enabled(self) -> bool:
+        from app.settings import settings as _s
+
+        return self._get_bool("local_index_enabled", _s.local_index_enabled)
 
     @property
     def max_file_size_mb(self) -> int:

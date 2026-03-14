@@ -136,6 +136,31 @@
     <div class="card-title">
       <h3>Additional Case Law Sources</h3>
     </div>
+
+    <p style="color:var(--text-2);font-size:0.875rem;margin-bottom:0.5rem"><strong>Local Citation Index</strong> — Fast zero-network lookup using a local copy of CourtListener bulk data. When populated, citations are resolved from this index before any API call, bypassing the CourtListener rate limit entirely. Populate with <code>python scripts/import_bulk_data.py &lt;citations.csv&gt;</code> after downloading the quarterly snapshot from the CourtListener S3 bucket.</p>
+
+    <label>
+      <input type="checkbox" name="local_index_enabled"
+             {% if ui.local_index_enabled in ("True", "true", "1", "yes") %}checked{% endif %}>
+      Enable local citation index
+    </label>
+    <small>When enabled and populated, citations are looked up in the local index before calling CourtListener. Disable only if you want to bypass the index temporarily.</small>
+
+    {% if local_index_stats is defined and local_index_stats %}
+    <div class="cache-stats" style="margin:0.5rem 0 0.75rem">
+      {% if local_index_stats.total > 0 %}
+      <p><strong>Indexed citations:</strong> {{ "{:,}".format(local_index_stats.total) }}</p>
+      {% if local_index_stats.last_import %}
+      <p><strong>Last import:</strong> {{ local_index_stats.last_import }}</p>
+      {% endif %}
+      {% else %}
+      <p style="color:var(--text-2);font-size:0.875rem">Index is empty. Run <code>python scripts/import_bulk_data.py &lt;file&gt;</code> to populate it.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <hr style="margin:1rem 0;border:none;border-top:1px solid var(--border)">
+
     <p style="color:var(--text-2);font-size:0.875rem"><strong>Harvard Caselaw Access Project (CAP)</strong> — Secondary fallback for citations not found via CourtListener. When enabled, NOT_FOUND citations are re-queried against the CAP database. The CAP API was decommissioned in 2024; if it remains unavailable the pass is silently skipped. An optional API key permits higher-rate access.</p>
 
     <label>
