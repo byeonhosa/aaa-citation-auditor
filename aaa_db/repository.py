@@ -124,16 +124,27 @@ def save_audit_run(
     # Write all successful verifications to the resolution cache.
     # This covers direct CourtListener matches, dedup, heuristic, search fallback,
     # and short-cite matches — so any citation verified once is never re-queried.
+    #
+    # `seen_cites` guards against duplicate normalized_cite values within the
+    # same batch (e.g. a PDF that cites the same case ten times): the SELECT in
+    # _upsert_resolution_cache runs before any db.flush(), so all duplicates
+    # would appear "not found" and all queue an INSERT — crashing on commit with
+    # a UNIQUE constraint violation.  We only call the upsert once per key.
     cached_count = 0
+    seen_cites: set[str] = set()
     for citation in citations:
         if (
             citation.verification_status == "VERIFIED"
             and citation.selected_cluster_id is not None
             and citation.resolution_method in _CACHEABLE_METHODS
         ):
+            key = citation.normalized_text or citation.raw_text
+            if key in seen_cites:
+                continue
+            seen_cites.add(key)
             _upsert_resolution_cache(
                 db,
-                normalized_cite=citation.normalized_text or citation.raw_text,
+                normalized_cite=key,
                 selected_cluster_id=citation.selected_cluster_id,
                 candidate_metadata=citation.candidate_metadata,
                 resolution_method=citation.resolution_method,
