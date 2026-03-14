@@ -29,6 +29,7 @@ class AuditRun(Base):
 
     input_text_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
     warning_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    memo_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     citations: Mapped[list["CitationResultRecord"]] = relationship(
         back_populates="audit_run",

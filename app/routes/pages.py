@@ -19,11 +19,18 @@ from aaa_db.repository import (
     lookup_statute_cache,
     resolve_citation,
     save_audit_run,
+    save_memo_for_run,
     save_statute_cache_entry,
 )
 from aaa_db.session import SessionLocal
 from aaa_db.telemetry_repository import get_or_create_install_id, record_telemetry_event
-from app.services.ai_risk_memo import build_provider, generate_risk_memo, unavailable_memo
+from app.services.ai_risk_memo import (
+    build_provider,
+    generate_risk_memo,
+    memo_from_json,
+    memo_to_json,
+    unavailable_memo,
+)
 from app.services.audit import (
     apply_citation_cap,
     collect_sources,
@@ -441,7 +448,7 @@ async def run_audit(
             }
         )
 
-        result_groups[-1]["ai_memo"] = generate_ai_memo_for_group(
+        ai_memo = generate_ai_memo_for_group(
             source_type=result_groups[-1]["source_type"],
             source_name=result_groups[-1]["source_name"],
             verification_summary=result_groups[-1]["verification_summary"],
@@ -449,6 +456,11 @@ async def run_audit(
             warnings=group_warnings,
             effective_settings=eff,
         )
+        result_groups[-1]["ai_memo"] = ai_memo
+
+        # Persist the memo so history views show the same text without regenerating.
+        with db_session() as db:
+            save_memo_for_run(db, run.id, memo_to_json(ai_memo))
 
     return render_dashboard(
         request,
@@ -488,20 +500,22 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
         citations = [
             citation_to_context(citation, resolution_cache=cache) for citation in run.citations
         ]
-        verification_summary = summarize_verification_statuses(run.citations)
         provenance_breakdown = get_provenance_breakdown(run.citations, resolution_cache=cache)
 
-    with db_session() as db:
-        eff = load_effective_settings(db)
-
-    ai_memo = generate_ai_memo_for_group(
-        source_type=run_context["source_type"],
-        source_name=run_context["source_name"],
-        verification_summary=verification_summary,
-        citations=citations,
-        warnings=[run_context["warning_text"]] if run_context["warning_text"] else [],
-        effective_settings=eff,
-    )
+        # Load the persisted memo — never regenerate on history views so results are stable.
+        if run.memo_json:
+            try:
+                ai_memo = memo_from_json(run.memo_json)
+            except Exception:
+                logger.warning("Failed to deserialize memo_json for run id=%d", run_id)
+                ai_memo = unavailable_memo(
+                    "Stored memo could not be read. Click 'Regenerate memo' to create a new one."
+                )
+        else:
+            ai_memo = unavailable_memo(
+                "No memo was stored for this audit run. "
+                "Click 'Regenerate memo' below to generate one."
+            )
 
     _record_event_safely(event_type="history_detail_viewed")
 
@@ -517,6 +531,38 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
             "ai_memo": ai_memo,
         },
     )
+
+
+@router.post("/history/{run_id}/regenerate-memo", response_class=HTMLResponse)
+def regenerate_memo(request: Request, run_id: int) -> RedirectResponse:
+    """Explicitly regenerate the AI memo for a saved run and re-persist it."""
+    with db_session() as db:
+        run = get_audit_run(db, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Audit run not found")
+
+        run_context = run_to_context(run)
+        cache = lookup_resolution_cache(db)
+        citations_ctx = [citation_to_context(c, resolution_cache=cache) for c in run.citations]
+        verification_summary = summarize_verification_statuses(run.citations)
+
+    with db_session() as db:
+        eff = load_effective_settings(db)
+
+    ai_memo = generate_ai_memo_for_group(
+        source_type=run_context["source_type"],
+        source_name=run_context["source_name"],
+        verification_summary=verification_summary,
+        citations=citations_ctx,
+        warnings=[run_context["warning_text"]] if run_context["warning_text"] else [],
+        effective_settings=eff,
+    )
+
+    with db_session() as db:
+        save_memo_for_run(db, run_id, memo_to_json(ai_memo))
+
+    logger.info("AI memo regenerated for run id=%d", run_id)
+    return RedirectResponse(url=f"/history/{run_id}", status_code=303)
 
 
 @router.get("/history/{run_id}/export")
@@ -568,6 +614,26 @@ def resolve_citation_route(
         citation = get_citation(db, citation_id)
         if citation is None or citation.audit_run_id != run_id:
             raise HTTPException(status_code=404, detail="Citation not found")
+
+        # Validate that cluster_id is in the stored candidate list.
+        candidate_ids: list[int] | None = None
+        if citation.candidate_cluster_ids:
+            try:
+                candidate_ids = json.loads(citation.candidate_cluster_ids)
+            except (ValueError, TypeError):
+                candidate_ids = None
+
+        if candidate_ids is not None and cluster_id not in candidate_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Selected case is not in the candidate list for this citation",
+            )
+        if candidate_ids is None:
+            logger.warning(
+                "Citation id=%d has no stored candidate list; allowing resolution without"
+                " validation",
+                citation_id,
+            )
 
         raw_candidate_metadata = citation.candidate_metadata
         candidate_metadata: list[dict] | None = None
