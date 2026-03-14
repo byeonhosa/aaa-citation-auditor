@@ -436,8 +436,9 @@ label:has(input[type="checkbox"]) {
   margin-top: 0.2rem;
 }
 
-.summary-card-derived  { background: var(--blue-bg);   border-color: #bfdbfe; }
-.summary-card-statute  { background: var(--teal-bg);   border-color: #99f6e4; }
+.summary-card-derived           { background: var(--blue-bg);   border-color: #bfdbfe; }
+.summary-card-statute           { background: var(--teal-bg);   border-color: #99f6e4; }
+.summary-card-statute-verified  { background: var(--green-bg);  border-color: #86efac; }
 .summary-card-active   { outline: 2px solid var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent); font-weight: 700; }
 .filter-note           { font-size: 0.85rem; color: var(--text-2); margin: 0.25rem 0 0.5rem; }
 
@@ -800,6 +801,99 @@ details > summary:hover {
   letter-spacing: -0.04em;
   line-height: 1;
   margin-bottom: 0.5rem;
+}
+
+/* ── Provenance badges ──────────────────────────────────────────────────── */
+.provenance-badge {
+  border-radius: var(--radius-sm);
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  padding: 0.2rem 0.55rem;
+}
+
+.provenance-direct           { background: var(--green-bg);   color: var(--green); }
+.provenance-heuristic        { background: var(--blue-bg);    color: var(--blue); }
+.provenance-user             { background: var(--teal-bg);    color: var(--teal); }
+.provenance-short-cite       { background: var(--blue-bg);    color: var(--blue); }
+.provenance-search           { background: var(--amber-bg);   color: var(--amber); }
+
+/* Cached variants — muted to indicate served from local cache */
+.provenance-direct-cached,
+.provenance-heuristic-cached,
+.provenance-user-cached,
+.provenance-short-cite-cached,
+.provenance-search-cached    { background: var(--surface-2);  color: var(--text-2); border: 1px solid var(--border); }
+
+.provenance-ambiguous        { background: #fff7ed;            color: #c2410c; }
+.provenance-not-found        { background: var(--amber-bg);   color: var(--amber); }
+.provenance-derived          { background: var(--blue-bg);    color: var(--blue); }
+.provenance-statute-detected { background: var(--teal-bg);    color: var(--teal); }
+.provenance-statute-verified { background: var(--green-bg);   color: var(--green); }
+.provenance-error            { background: var(--red-bg);     color: var(--red); }
+.provenance-unverified       { background: var(--surface-2);  color: var(--text-2); }
+.provenance-unknown          { background: var(--surface-2);  color: var(--text-muted); }
+
+/* ── Provenance breakdown bar ───────────────────────────────────────────── */
+.provenance-breakdown {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  gap: 0.4rem;
+  margin: 0 0 0.75rem;
+}
+
+.provenance-breakdown-label {
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.provenance-breakdown-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  padding: 0.15rem 0.5rem;
+}
+
+/* ── Provenance help section ────────────────────────────────────────────── */
+.provenance-help-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 1.5rem;
+  padding: 0.75rem 1rem;
+}
+
+.provenance-help-section > summary {
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.1rem 0;
+  user-select: none;
+}
+
+.provenance-help-section > summary:hover {
+  color: var(--primary);
+}
+
+.provenance-help-list {
+  margin: 0.75rem 0 0;
+}
+
+.provenance-help-list dt {
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-top: 0.6rem;
+}
+
+.provenance-help-list dd {
+  color: var(--text-2);
+  font-size: 0.85rem;
+  margin: 0.1rem 0 0 1rem;
 }
 
 /* ── Responsive ─────────────────────────────────────────────────────────── */

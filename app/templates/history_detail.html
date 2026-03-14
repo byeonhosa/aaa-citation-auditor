@@ -79,7 +79,11 @@
       <p><strong>Type:</strong> {{ citation.citation_type }}</p>
       <p><strong>Normalized:</strong> {{ citation.normalized_text or "(not available)" }}</p>
       <p><strong>Resolved from:</strong> {{ citation.resolved_from or "(unresolved)" }}</p>
-      <p><strong>Verification:</strong> <span class="verification-badge status-{{ (citation.verification_status or 'UNKNOWN') | lower }}">{{ citation.verification_status or "UNKNOWN" }}</span></p>
+      <p>
+        <strong>Verification:</strong>
+        <span class="verification-badge status-{{ (citation.verification_status or 'UNKNOWN') | lower }}">{{ citation.verification_status or "UNKNOWN" }}</span>
+        {% if citation.provenance %}<span class="provenance-badge {{ citation.provenance.css_class }}" title="{{ citation.provenance.description }}">{{ citation.provenance.label }}</span>{% endif %}
+      </p>
       <p><strong>Detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
       {% if citation.verification_status == "NOT_FOUND" and citation.search_links %}
       <p class="help-verify-links">
@@ -90,12 +94,9 @@
       </p>
       {% endif %}
       <p class="snippet"><strong>Snippet:</strong> {{ citation.snippet or "(snippet unavailable)" }}</p>
-      {% if citation.resolution_method == "cache" %}
-      <p><strong>Resolution:</strong> Resolved from cache (cluster {{ citation.selected_cluster_id }})</p>
-      {% elif citation.resolution_method == "heuristic" and citation.candidate_metadata %}
-      <p><strong>Resolution:</strong> Resolved automatically (heuristic match) — cluster {{ citation.selected_cluster_id }}</p>
+      {% if citation.verification_status == "AMBIGUOUS" and citation.candidate_metadata %}
       <details>
-        <summary>Change selection</summary>
+        <summary>Select a matching case to resolve this citation</summary>
         <ul class="candidate-list">
           {% for candidate in citation.candidate_metadata %}
           <li>
@@ -110,15 +111,9 @@
           {% endfor %}
         </ul>
       </details>
-      {% elif citation.resolution_method == "dedup" %}
-      <p><strong>Resolution:</strong> Resolved automatically (duplicate candidates removed) — cluster {{ citation.selected_cluster_id }}</p>
-      {% elif citation.resolution_method == "search_fallback" %}
-      <p><strong>Resolution:</strong> Resolved via search fallback — cluster {{ citation.selected_cluster_id }}</p>
-      {% elif citation.resolution_method %}
-      <p><strong>Resolution:</strong> Resolved by {{ citation.resolution_method }} (cluster {{ citation.selected_cluster_id }})</p>
-      {% elif citation.verification_status == "AMBIGUOUS" and citation.candidate_metadata %}
+      {% elif citation.resolution_method == "heuristic" and citation.candidate_metadata %}
       <details>
-        <summary>Select a matching case to resolve this citation</summary>
+        <summary>Change selection (resolved automatically — heuristic match)</summary>
         <ul class="candidate-list">
           {% for candidate in citation.candidate_metadata %}
           <li>
@@ -140,7 +135,28 @@
   {% else %}
   <p class="empty-state">No citations saved for this run.</p>
   {% endif %}
+
+  {% if provenance_breakdown %}
+  <div class="provenance-breakdown" style="margin-top:0.75rem">
+    <span class="provenance-breakdown-label">Verified by:</span>
+    {% for label, count in provenance_breakdown %}
+    <span class="provenance-breakdown-item">{{ label }} <strong>({{ count }})</strong></span>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
+
+{% if provenance_help %}
+<details class="provenance-help-section">
+  <summary>What do these labels mean?</summary>
+  <dl class="provenance-help-list">
+    {% for label, description in provenance_help %}
+    <dt>{{ label }}</dt>
+    <dd>{{ description }}</dd>
+    {% endfor %}
+  </dl>
+</details>
+{% endif %}
 
 <script>
   document.querySelectorAll(".candidate-list form").forEach((form) => {

@@ -3308,7 +3308,7 @@ def test_history_detail_shows_heuristic_resolution_label() -> None:
     response = client.get(f"/history/{run_id}")
 
     assert response.status_code == 200
-    assert "Resolved automatically (heuristic match)" in response.text
+    assert "Heuristic Match" in response.text
     assert "Change selection" in response.text
 
 

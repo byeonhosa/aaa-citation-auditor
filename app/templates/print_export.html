@@ -42,6 +42,7 @@
           <th>Normalized</th>
           <th>Resolved from</th>
           <th>Status</th>
+          <th>Provenance</th>
           <th>Detail</th>
           <th>Snippet</th>
         </tr>
@@ -55,6 +56,7 @@
           <td>{{ row.normalized_text or "" }}</td>
           <td>{{ row.resolved_from or "" }}</td>
           <td>{{ row.verification_status or "" }}</td>
+          <td>{{ row.provenance or "" }}</td>
           <td>{{ row.verification_detail or "" }}</td>
           <td>{{ row.snippet or "" }}</td>
         </tr>

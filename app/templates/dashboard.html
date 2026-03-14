@@ -141,6 +141,14 @@
     {% endfor %}
   </div>
   <p id="filter-note-{{ loop.index }}" class="filter-note" style="display:none"></p>
+  {% if group.provenance_breakdown %}
+  <div class="provenance-breakdown">
+    <span class="provenance-breakdown-label">Verified by:</span>
+    {% for label, count in group.provenance_breakdown %}
+    <span class="provenance-breakdown-item">{{ label }} <strong>({{ count }})</strong></span>
+    {% endfor %}
+  </div>
+  {% endif %}
   {% endif %}
 
   <div class="ai-memo-box">
@@ -191,7 +199,11 @@
       <p><strong>Type:</strong> {{ citation.citation_type }}</p>
       <p><strong>Normalized:</strong> {{ citation.normalized_text or "(not available)" }}</p>
       <p><strong>Resolved from:</strong> {{ citation.resolved_from or "(unresolved)" }}</p>
-      <p><strong>Verification:</strong> <span class="verification-badge status-{{ (citation.verification_status or 'UNKNOWN') | lower }}">{{ citation.verification_status or "UNKNOWN" }}</span></p>
+      <p>
+        <strong>Verification:</strong>
+        <span class="verification-badge status-{{ (citation.verification_status or 'UNKNOWN') | lower }}">{{ citation.verification_status or "UNKNOWN" }}</span>
+        {% if citation.provenance %}<span class="provenance-badge {{ citation.provenance.css_class }}" title="{{ citation.provenance.description }}">{{ citation.provenance.label }}</span>{% endif %}
+      </p>
       <p><strong>Detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
       {% if citation.verification_status == "NOT_FOUND" and citation.search_links %}
       <p class="help-verify-links">
@@ -215,6 +227,18 @@
   {% endif %}{# end no_citations else #}
 </div>
 {% endfor %}
+
+{% if result_groups and provenance_help %}
+<details class="provenance-help-section">
+  <summary>What do these labels mean?</summary>
+  <dl class="provenance-help-list">
+    {% for label, description in provenance_help %}
+    <dt>{{ label }}</dt>
+    <dd>{{ description }}</dd>
+    {% endfor %}
+  </dl>
+</details>
+{% endif %}
 {% endif %}
 
 <script>
