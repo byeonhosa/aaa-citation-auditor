@@ -5,6 +5,7 @@ from io import StringIO
 from typing import Any
 
 from aaa_db.models import AuditRun
+from app.services.provenance import get_provenance
 
 
 def _source_label(run: AuditRun) -> str:
@@ -17,6 +18,10 @@ def _citation_rows(run: AuditRun) -> list[dict[str, str]]:
     source = _source_label(run)
     rows: list[dict[str, str]] = []
     for citation in run.citations:
+        provenance = get_provenance(
+            citation.verification_status,
+            citation.resolution_method,
+        )
         rows.append(
             {
                 "source": source,
@@ -26,6 +31,7 @@ def _citation_rows(run: AuditRun) -> list[dict[str, str]]:
                 "resolved_from": citation.resolved_from or "",
                 "verification_status": citation.verification_status or "",
                 "verification_detail": citation.verification_detail or "",
+                "provenance": provenance.label,
                 "snippet": citation.snippet or "",
                 "resolution_method": citation.resolution_method or "",
             }
@@ -56,6 +62,7 @@ def export_markdown_for_run(run: AuditRun) -> str:
                 f"- Normalized: {row['normalized_text'] or '(not available)'}",
                 f"- Resolved from: {row['resolved_from'] or '(unresolved)'}",
                 f"- Verification: {row['verification_status'] or 'UNKNOWN'}",
+                f"- Provenance: {row['provenance']}",
                 f"- Verification detail: {row['verification_detail'] or '(none)'}",
                 f"- Snippet: {row['snippet'] or '(snippet unavailable)'}",
                 "",
@@ -77,6 +84,7 @@ def export_csv_for_run(run: AuditRun) -> str:
         "normalized_text",
         "resolved_from",
         "verification_status",
+        "provenance",
         "verification_detail",
         "snippet",
         "resolution_method",

@@ -36,6 +36,7 @@ from app.services.exporters import (
     export_markdown_for_run,
     export_print_html_context,
 )
+from app.services.provenance import PROVENANCE_HELP, get_provenance, get_provenance_breakdown
 from app.services.search_links import build_search_links
 from app.services.settings_service import (
     _SENSITIVE_KEYS,
@@ -98,7 +99,10 @@ def _record_event_safely(**kwargs) -> None:  # noqa: ANN003
         logger.exception("Failed to record telemetry event.")
 
 
-def citation_to_context(citation: Any) -> dict[str, Any]:
+def citation_to_context(
+    citation: Any,
+    resolution_cache: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     raw_candidate_metadata = getattr(citation, "candidate_metadata", None)
     if isinstance(raw_candidate_metadata, str):
         try:
@@ -107,6 +111,8 @@ def citation_to_context(citation: Any) -> dict[str, Any]:
             raw_candidate_metadata = None
 
     status = getattr(citation, "verification_status", None)
+    resolution_method = getattr(citation, "resolution_method", None)
+
     search_links: dict[str, str] | None = None
     if status == "NOT_FOUND":
         raw_text = getattr(citation, "raw_text", "") or ""
@@ -119,6 +125,18 @@ def citation_to_context(citation: Any) -> dict[str, Any]:
                     break
         search_links = build_search_links(raw_text, case_name)
 
+    # Determine original resolution method for cached citations so the
+    # provenance label shows e.g. "Direct Match (cached)" rather than just
+    # "cached".
+    original_method: str | None = None
+    if resolution_method == "cache" and resolution_cache is not None:
+        cache_key = getattr(citation, "normalized_text", None) or getattr(citation, "raw_text", "")
+        cached_entry = resolution_cache.get(cache_key)
+        if cached_entry:
+            original_method = cached_entry.get("resolution_method")
+
+    provenance = get_provenance(status, resolution_method, original_method)
+
     return {
         "id": getattr(citation, "id", None),
         "raw_text": citation.raw_text,
@@ -130,8 +148,9 @@ def citation_to_context(citation: Any) -> dict[str, Any]:
         "snippet": getattr(citation, "snippet", None),
         "candidate_metadata": raw_candidate_metadata,
         "selected_cluster_id": getattr(citation, "selected_cluster_id", None),
-        "resolution_method": getattr(citation, "resolution_method", None),
+        "resolution_method": resolution_method,
         "search_links": search_links,
+        "provenance": provenance,
     }
 
 
@@ -244,6 +263,7 @@ def render_dashboard(
             "warning_messages": warnings,
             "validation_message": validation_message,
             "total_citations": total_citations,
+            "provenance_help": PROVENANCE_HELP,
         },
     )
 
@@ -407,7 +427,12 @@ async def run_audit(
                 "source_name": source.source_name,
                 "citation_count": len(citation_results),
                 "verification_summary": verification_summary,
-                "citations": [citation_to_context(citation) for citation in citation_results],
+                "citations": [
+                    citation_to_context(c, resolution_cache=cache) for c in citation_results
+                ],
+                "provenance_breakdown": get_provenance_breakdown(
+                    citation_results, resolution_cache=cache
+                ),
                 "warning_messages": group_warnings,
                 "citation_cap_warning": cap_warning,
                 "no_citations": False,
@@ -459,8 +484,12 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
             raise HTTPException(status_code=404, detail="Audit run not found")
 
         run_context = run_to_context(run)
-        citations = [citation_to_context(citation) for citation in run.citations]
+        cache = lookup_resolution_cache(db)
+        citations = [
+            citation_to_context(citation, resolution_cache=cache) for citation in run.citations
+        ]
         verification_summary = summarize_verification_statuses(run.citations)
+        provenance_breakdown = get_provenance_breakdown(run.citations, resolution_cache=cache)
 
     with db_session() as db:
         eff = load_effective_settings(db)
@@ -483,6 +512,8 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
             "title": f"Audit Run #{run_id}",
             "run": run_context,
             "citations": citations,
+            "provenance_breakdown": provenance_breakdown,
+            "provenance_help": PROVENANCE_HELP,
             "ai_memo": ai_memo,
         },
     )
