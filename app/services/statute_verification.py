@@ -48,7 +48,7 @@ _VA_CITATION_RE = re.compile(
         | Code\s+of\s+(?:Va\.?|Virginia)                # Code of Virginia | Code of Va.
           (?:[^§\n]{0,50})?                              # optional year / parenthetical
     )
-    \s*,?\s*§\s*                                         # § symbol
+    \s*,?\s*(?:§|Sec\.|Section)\s*                       # § symbol or Sec. or Section
     (                                                    # group 1: bare section number
         \d+(?:\.\d+)?                                    # title: 1 | 15.2 | 46.2
         [-\u2013]                                        # hyphen or en-dash
