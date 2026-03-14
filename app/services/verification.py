@@ -589,6 +589,10 @@ def verify_citations(
     federal_statute_verifier: FederalStatuteVerifier | None = None,
     govinfo_api_key: str | None = None,
     federal_statute_timeout_seconds: int = 15,
+    cap_fallback_enabled: bool = True,
+    cap_api_key: str | None = None,
+    cap_timeout_seconds: int = 15,
+    cap_verifier: Any = None,
 ) -> list[CitationResult]:
     # ── First pass: handle STATUTE, DERIVED, NO_TOKEN, and cache hits ──
     verifiable: list[CitationResult] = []
@@ -879,6 +883,56 @@ def verify_citations(
                 "Search fallback: %d resolved, %d still ambiguous",
                 fallback_resolved,
                 fallback_ambiguous,
+            )
+
+    # ── Fourth-B pass: CAP fallback for remaining NOT_FOUND citations ────────
+    # Harvard Caselaw Access Project is tried as a secondary database when
+    # CourtListener search fallback still leaves citations NOT_FOUND.
+    # Gracefully degrades to a no-op when the CAP API is unavailable.
+    if cap_fallback_enabled:
+        from app.services.cap_verification import CAPVerifier
+        from app.services.disambiguation import extract_case_name_from_text
+
+        active_cap: Any = cap_verifier or CAPVerifier(
+            api_key=cap_api_key,
+            timeout_seconds=cap_timeout_seconds,
+        )
+        cap_resolved = 0
+        cap_ambiguous = 0
+
+        for citation in verifiable:
+            if citation.verification_status != "NOT_FOUND":
+                continue
+
+            normalized = citation.normalized_text or citation.raw_text
+            case_name: str | None = None
+            for src in (citation.snippet, citation.raw_text):
+                if src:
+                    case_name = extract_case_name_from_text(src)
+                    if case_name:
+                        break
+
+            fb = active_cap.verify_citation(normalized, case_name)
+            if fb is None:
+                continue
+
+            citation.verification_status = fb.status
+            citation.verification_detail = fb.detail
+            citation.candidate_cluster_ids = fb.candidate_cluster_ids
+            citation.candidate_metadata = fb.candidate_metadata
+
+            if fb.status == "VERIFIED":
+                citation.resolution_method = "cap_fallback"
+                citation.selected_cluster_id = (fb.candidate_cluster_ids or [None])[0]
+                cap_resolved += 1
+            else:
+                cap_ambiguous += 1
+
+        if cap_resolved or cap_ambiguous:
+            logger.info(
+                "CAP fallback: %d resolved, %d still ambiguous",
+                cap_resolved,
+                cap_ambiguous,
             )
 
     # ── Fifth pass: heuristic auto-disambiguation of AMBIGUOUS citations ─────

@@ -25,6 +25,7 @@ _RESOLUTION_CONFIDENCE: dict[str, int] = {
     "direct": 3,
     "dedup": 3,
     "search_fallback": 2,
+    "cap_fallback": 2,
     "short_cite_match": 1,
     "cache": 0,  # never re-cache a cache hit
 }
@@ -33,7 +34,7 @@ _RESOLUTION_CONFIDENCE: dict[str, int] = {
 # "user" is excluded here because it is cached immediately by resolve_citation().
 # "cache" is excluded because it is already a cache hit.
 _CACHEABLE_METHODS = frozenset(
-    {"direct", "heuristic", "dedup", "search_fallback", "short_cite_match"}
+    {"direct", "heuristic", "dedup", "search_fallback", "cap_fallback", "short_cite_match"}
 )
 
 EXCERPT_LENGTH = 200

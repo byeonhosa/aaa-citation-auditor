@@ -75,6 +75,11 @@ _VERIFIED_METHOD_MAP: dict[str | None, tuple[str, str, str]] = {
         " Slightly less certain than a direct database match.",
         "provenance-search",
     ),
+    "cap_fallback": (
+        "CAP Match",
+        "Verified via Harvard Caselaw Access Project citation lookup.",
+        "provenance-cap",
+    ),
 }
 
 # ── Non-VERIFIED status map ───────────────────────────────────────────────────
@@ -236,6 +241,11 @@ PROVENANCE_HELP: list[tuple[str, str]] = [
         "Search Match",
         "The citation was not found by direct lookup, but was located via a keyword search using"
         " the case name. Slightly less certain — confirm the citation text is accurate.",
+    ),
+    (
+        "CAP Match",
+        "The citation was found in the Harvard Caselaw Access Project database as a secondary"
+        " fallback. Confirm the citation text is accurate.",
     ),
     (
         "[Any label] (cached)",
