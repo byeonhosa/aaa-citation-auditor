@@ -248,6 +248,15 @@ def clear_resolution_cache(db: Session) -> int:
     return count
 
 
+def save_memo_for_run(db: Session, run_id: int, memo_json: str) -> None:
+    """Persist the serialized AI memo JSON for a run (overwrites any existing value)."""
+    run = db.get(AuditRun, run_id)
+    if run is not None:
+        run.memo_json = memo_json
+        db.commit()
+        logger.debug("AI memo persisted for run id=%d", run_id)
+
+
 def list_audit_runs(db: Session) -> list[AuditRun]:
     stmt = select(AuditRun).order_by(AuditRun.created_at.desc(), AuditRun.id.desc())
     return list(db.scalars(stmt).all())

@@ -286,6 +286,31 @@ def build_provider(settings: Settings) -> MemoProvider | None:
     return None
 
 
+# ── Memo serialization ────────────────────────────────────────────────────────
+
+
+def memo_to_json(memo: RiskMemo) -> str:
+    """Serialize a RiskMemo to a JSON string for DB persistence."""
+    from dataclasses import asdict
+
+    return json.dumps(asdict(memo))
+
+
+def memo_from_json(json_str: str) -> RiskMemo:
+    """Deserialize a RiskMemo from a JSON string stored in the DB."""
+    data = json.loads(json_str)
+    return RiskMemo(
+        risk_level=data.get("risk_level", "Unavailable"),
+        summary=data.get("summary", ""),
+        top_issues=data.get("top_issues") or [],
+        recommended_actions=data.get("recommended_actions") or [],
+        advisory_note=data.get("advisory_note") or _ADVISORY_NOTE,
+        available=bool(data.get("available", True)),
+        unavailable_reason=data.get("unavailable_reason"),
+        generated_by=data.get("generated_by"),
+    )
+
+
 # ── Public entry point ────────────────────────────────────────────────────────
 
 
