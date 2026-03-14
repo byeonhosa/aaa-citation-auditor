@@ -16,8 +16,10 @@ from aaa_db.repository import (
     get_citation,
     list_audit_runs,
     lookup_resolution_cache,
+    lookup_statute_cache,
     resolve_citation,
     save_audit_run,
+    save_statute_cache_entry,
 )
 from aaa_db.session import SessionLocal
 from aaa_db.telemetry_repository import get_or_create_install_id, record_telemetry_event
@@ -50,7 +52,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 logger = logging.getLogger(__name__)
 
-_GOOD_STATUSES = frozenset({"VERIFIED", "DERIVED", "STATUTE_DETECTED"})
+_GOOD_STATUSES = frozenset({"VERIFIED", "DERIVED", "STATUTE_DETECTED", "STATUTE_VERIFIED"})
 
 
 def _is_all_clean(citation_results: list) -> bool:
@@ -60,7 +62,7 @@ def _is_all_clean(citation_results: list) -> bool:
 
 
 def _is_courtlistener_unreachable(citation_results: list) -> bool:
-    _skip = frozenset({"STATUTE_DETECTED", "DERIVED", "UNVERIFIED_NO_TOKEN"})
+    _skip = frozenset({"STATUTE_DETECTED", "STATUTE_VERIFIED", "DERIVED", "UNVERIFIED_NO_TOKEN"})
     attempted = [
         c
         for c in citation_results
@@ -145,6 +147,7 @@ def run_to_context(run: AuditRun) -> dict[str, Any]:
         "ambiguous_count": run.ambiguous_count,
         "derived_count": run.derived_count,
         "statute_count": run.statute_count,
+        "statute_verified_count": run.statute_verified_count or 0,
         "error_count": run.error_count,
         "unverified_no_token_count": run.unverified_no_token_count,
         "input_text_excerpt": run.input_text_excerpt,
@@ -336,6 +339,7 @@ async def run_audit(
 
         with db_session() as db:
             cache = lookup_resolution_cache(db)
+            statute_cache = lookup_statute_cache(db)
         citation_results = verify_citations(
             citation_results,
             courtlistener_token=eff.courtlistener_token,
@@ -344,7 +348,19 @@ async def run_audit(
             batch_verification=eff.batch_verification,
             resolution_cache=cache,
             search_fallback_enabled=eff.search_fallback_enabled,
+            virginia_statute_verification=eff.virginia_statute_verification,
+            statute_cache=statute_cache,
+            virginia_statute_timeout_seconds=eff.virginia_statute_timeout_seconds,
         )
+        # Persist any new statute verification results to the cache
+        with db_session() as db:
+            for section_num, entry in statute_cache.items():
+                save_statute_cache_entry(
+                    db,
+                    section_number=section_num,
+                    status=entry["status"],
+                    section_title=entry.get("section_title"),
+                )
 
         verification_summary = summarize_verification_statuses(citation_results)
 
@@ -374,6 +390,7 @@ async def run_audit(
             ambiguous_count=verification_summary.get("AMBIGUOUS", 0),
             derived_count=verification_summary.get("DERIVED", 0),
             statute_count=verification_summary.get("STATUTE_DETECTED", 0),
+            statute_verified_count=verification_summary.get("STATUTE_VERIFIED", 0),
             error_count=verification_summary.get("ERROR", 0),
             unverified_no_token_count=verification_summary.get("UNVERIFIED_NO_TOKEN", 0),
             had_warning=bool(group_warnings),

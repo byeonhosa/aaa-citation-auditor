@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2"
     ai_request_timeout_seconds: int = 60
 
+    virginia_statute_verification: bool = True
+    virginia_statute_timeout_seconds: int = 10
+
     max_file_size_mb: int = 50
     max_files_per_batch: int = 10
     max_citations_per_run: int = 500
