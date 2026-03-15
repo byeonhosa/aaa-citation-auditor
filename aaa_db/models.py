@@ -120,6 +120,35 @@ class AppSettings(Base):
     __table_args__ = (Index("ix_app_settings_key", "key", unique=True),)
 
 
+class LocalCitationIndex(Base):
+    """Local citation index built from CourtListener bulk data snapshots.
+
+    Each row maps a normalized citation string to the CourtListener cluster it
+    belongs to.  A single cluster may have multiple rows (parallel citations).
+    """
+
+    __tablename__ = "local_citation_index"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    normalized_cite: Mapped[str] = mapped_column(String(512))
+    cluster_id: Mapped[int] = mapped_column(Integer)
+    case_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    court_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    date_filed: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reporter: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    volume: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    page: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source: Mapped[str] = mapped_column(String(64), default="courtlistener_bulk")
+    imported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_local_citation_index_normalized_cite", "normalized_cite", unique=True),
+        Index("ix_local_citation_index_cluster_id", "cluster_id"),
+    )
+
+
 class StatuteVerificationCache(Base):
     """Caches Virginia Code section verification results to avoid redundant API calls."""
 

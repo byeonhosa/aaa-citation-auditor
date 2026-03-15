@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     cap_fallback_enabled: bool = True
     cap_timeout_seconds: int = 15
 
+    local_index_enabled: bool = True
+
     max_file_size_mb: int = 50
     max_files_per_batch: int = 10
     max_citations_per_run: int = 500

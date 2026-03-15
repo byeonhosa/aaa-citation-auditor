@@ -593,12 +593,25 @@ def verify_citations(
     cap_api_key: str | None = None,
     cap_timeout_seconds: int = 15,
     cap_verifier: Any = None,
+    local_index: Any = None,
+    local_index_enabled: bool = True,
 ) -> list[CitationResult]:
-    # ── First pass: handle STATUTE, DERIVED, NO_TOKEN, and cache hits ──
+    # ── First pass: handle STATUTE, DERIVED, NO_TOKEN, and cache / local-index hits ──
+    # Pre-load local index hits in a single batch query to avoid N per-citation
+    # round-trips to the database.
+    _local_hits: dict[str, Any] = {}
+    if local_index is not None and local_index_enabled:
+        all_cites = [c.normalized_text or c.raw_text for c in citations]
+        try:
+            _local_hits = local_index.lookup_batch(all_cites)
+        except Exception:
+            logger.exception("Local index batch lookup failed; skipping local index for this run")
+
     verifiable: list[CitationResult] = []
     statute_count = 0
     derived_count = 0
     cache_count = 0
+    local_index_count = 0
 
     for citation in citations:
         if is_statute_citation(citation):
@@ -644,17 +657,52 @@ def verify_citations(
                 )
                 continue
 
+        # Local citation index: fast zero-network lookup from bulk data
+        if _local_hits:
+            cite_key = citation.normalized_text or citation.raw_text
+            hit = _local_hits.get(cite_key)
+            if hit is not None:
+                cid = hit["cluster_id"]
+                case_name = hit.get("case_name") or ""
+                detail = f"Matched in local citation index (cluster {cid})"
+                if case_name:
+                    detail += f". {case_name}"
+                citation.verification_status = "VERIFIED"
+                citation.selected_cluster_id = cid
+                citation.resolution_method = "local_index"
+                citation.candidate_cluster_ids = [cid]
+                citation.candidate_metadata = [
+                    {
+                        "cluster_id": cid,
+                        "case_name": case_name or None,
+                        "court": hit.get("court_id"),
+                        "date_filed": hit.get("date_filed"),
+                    }
+                ]
+                citation.verification_detail = detail + "."
+                local_index_count += 1
+                logger.debug(
+                    "Local index hit for citation: %r → cluster %d",
+                    citation.raw_text,
+                    cid,
+                )
+                continue
+
         verifiable.append(citation)
 
     if cache_count:
         logger.info("Cache resolved %d citation(s) before CourtListener", cache_count)
+    if local_index_count:
+        logger.info("Local index resolved %d citation(s) before CourtListener", local_index_count)
     logger.info(
-        "Verification starting: %d total, %d case law, %d statute, %d derived, %d cache",
+        "Verification starting: %d total, %d case law, %d statute, %d derived, "
+        "%d cache, %d local_index",
         len(citations),
         len(verifiable),
         statute_count,
         derived_count,
         cache_count,
+        local_index_count,
     )
 
     # ── Virginia statute verification pass ──────────────────────────────────

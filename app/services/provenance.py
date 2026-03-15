@@ -80,6 +80,11 @@ _VERIFIED_METHOD_MAP: dict[str | None, tuple[str, str, str]] = {
         "Verified via Harvard Caselaw Access Project citation lookup.",
         "provenance-cap",
     ),
+    "local_index": (
+        "Direct Match (local)",
+        "Matched from the local CourtListener citation index (bulk data).",
+        "provenance-direct",
+    ),
 }
 
 # ── Non-VERIFIED status map ───────────────────────────────────────────────────
@@ -246,6 +251,11 @@ PROVENANCE_HELP: list[tuple[str, str]] = [
         "CAP Match",
         "The citation was found in the Harvard Caselaw Access Project database as a secondary"
         " fallback. Confirm the citation text is accurate.",
+    ),
+    (
+        "Direct Match (local)",
+        "Matched from the local CourtListener citation index built from bulk data. Same"
+        " confidence as a live CourtListener direct match.",
     ),
     (
         "[Any label] (cached)",
