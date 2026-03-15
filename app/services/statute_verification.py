@@ -128,7 +128,7 @@ def verify_virginia_section(
     section_title is the human-readable heading from the API (e.g. ``"Voluntary
     settlements among local governments"``), or ``None`` when unavailable.
     """
-    url = _VA_BASE_URL + section_number
+    url = _VA_BASE_URL + section_number + "/"
     try:
         if _client is not None:
             response = _client.get(url)

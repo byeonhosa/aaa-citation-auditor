@@ -158,7 +158,7 @@ class TestVerifyVirginiaSection:
         assert status == "STATUTE_VERIFIED"
         assert title == "Voluntary settlements among local governments"
         mock_client.get.assert_called_once_with(
-            "https://law.lis.virginia.gov/api/CoVSectionsGetSectionDetailsJson/15.2-3400"
+            "https://law.lis.virginia.gov/api/CoVSectionsGetSectionDetailsJson/15.2-3400/"
         )
 
     def test_not_found_section(self):
