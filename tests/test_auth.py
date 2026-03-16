@@ -313,3 +313,27 @@ def test_audit_associates_run_with_user():
             select(AuditRun).where(AuditRun.user_id == user.id).order_by(AuditRun.id.desc())
         )
     assert run is not None
+
+
+def test_new_login_does_not_carry_over_previous_users_name():
+    """Logging in as a new user must not show the previous user's name in the header."""
+    with _tc() as c:
+        # Register and login as user A
+        c.post(
+            "/register",
+            data={"email": _email("first"), "password": "password123", "name": "FirstUser"},
+            follow_redirects=True,
+        )
+        resp_a = c.get("/history", follow_redirects=False)
+    assert b"FirstUser" in resp_a.content
+
+    # A separate client (simulating a different browser session) logs in as user B
+    with _tc() as c2:
+        c2.post(
+            "/register",
+            data={"email": _email("second"), "password": "password123", "name": "SecondUser"},
+            follow_redirects=True,
+        )
+        resp_b = c2.get("/history", follow_redirects=False)
+    assert b"SecondUser" in resp_b.content
+    assert b"FirstUser" not in resp_b.content

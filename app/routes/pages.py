@@ -15,6 +15,7 @@ from aaa_db.repository import (
     get_audit_run,
     get_cache_stats,
     get_citation,
+    get_user_run_number,
     list_audit_runs,
     lookup_resolution_cache,
     lookup_statute_cache,
@@ -93,8 +94,8 @@ def _user_ctx(request: Request) -> dict | None:
         return None
     return {
         "id": user_id,
-        "email": request.session.get("user_email", ""),
-        "name": request.session.get("user_name", ""),
+        "email": request.session.get("user_email") or "",
+        "name": request.session.get("user_name") or "",
     }
 
 
@@ -533,11 +534,15 @@ async def run_audit(
 @router.get("/history", response_class=HTMLResponse)
 def history(request: Request) -> HTMLResponse:
     current_user = _user_ctx(request)
+    user_id = current_user["id"] if current_user else None
     with db_session() as db:
-        runs = [
-            run_to_context(run)
-            for run in list_audit_runs(db, user_id=current_user["id"] if current_user else None)
-        ]
+        run_objects = list_audit_runs(db, user_id=user_id)
+        total = len(run_objects)
+        runs = []
+        for i, run_obj in enumerate(run_objects):
+            ctx = run_to_context(run_obj)
+            ctx["user_run_number"] = total - i
+            runs.append(ctx)
 
     _record_event_safely(event_type="history_viewed")
 
@@ -555,16 +560,16 @@ def history(request: Request) -> HTMLResponse:
 @router.get("/history/{run_id}", response_class=HTMLResponse)
 def history_detail(request: Request, run_id: int) -> HTMLResponse:
     current_user = _user_ctx(request)
+    user_id = current_user["id"] if current_user else None
     with db_session() as db:
-        run = get_audit_run(db, run_id, user_id=current_user["id"] if current_user else None)
+        run = get_audit_run(db, run_id, user_id=user_id)
         if run is None:
             _record_event_safely(event_type="missing_run_404")
             raise HTTPException(status_code=404, detail="Audit run not found")
 
         run_context = run_to_context(run)
-        cache = lookup_resolution_cache(
-            db, current_user_id=current_user["id"] if current_user else None
-        )
+        user_run_number = get_user_run_number(db, run_id, user_id)
+        cache = lookup_resolution_cache(db, current_user_id=user_id)
         citations = [
             citation_to_context(citation, resolution_cache=cache) for citation in run.citations
         ]
@@ -591,8 +596,9 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
         request=request,
         name="history_detail.html",
         context={
-            "title": f"Audit Run #{run_id}",
+            "title": f"Audit Run #{user_run_number}",
             "run": run_context,
+            "user_run_number": user_run_number,
             "citations": citations,
             "provenance_breakdown": provenance_breakdown,
             "provenance_help": PROVENANCE_HELP,
