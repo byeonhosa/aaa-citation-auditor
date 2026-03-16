@@ -209,10 +209,20 @@ def test_import_clusters_format(db_session, tmp_path):
 
 def test_import_clusters_format_skips_empty_citations(db_session, tmp_path):
     rows = [
-        {"id": "1", "case_name": "No Cite Case", "date_filed": "2000-01-01",
-         "docket__court_id": "", "citations": ""},
-        {"id": "2", "case_name": "Has Cite", "date_filed": "2000-01-01",
-         "docket__court_id": "", "citations": '["42 U.S.C. 1983"]'},
+        {
+            "id": "1",
+            "case_name": "No Cite Case",
+            "date_filed": "2000-01-01",
+            "docket__court_id": "",
+            "citations": "",
+        },
+        {
+            "id": "2",
+            "case_name": "Has Cite",
+            "date_filed": "2000-01-01",
+            "docket__court_id": "",
+            "citations": '["42 U.S.C. 1983"]',
+        },
     ]
     fp = _write_csv(tmp_path, "opinion-clusters.csv", rows)
     stats = import_from_csv(fp, db_session)

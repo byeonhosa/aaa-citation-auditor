@@ -28,8 +28,11 @@
   </div>
   <p id="history-filter-note" style="display:none;margin-top:0.5rem"></p>
 
-  <p class="export-links" style="margin-top:1rem">
-    Export:
+  <p style="margin-top:1rem">
+    <a href="/history/{{ run.id }}/report" class="btn btn-primary" style="font-size:0.875rem;padding:0.5rem 1.1rem;">&#8595; Download Verification Report (PDF)</a>
+  </p>
+  <p class="export-links" style="margin-top:0.5rem">
+    Also export as:
     <a href="/history/{{ run.id }}/export?format=markdown">Markdown</a>
     <a href="/history/{{ run.id }}/export?format=csv">CSV</a>
     <a href="/history/{{ run.id }}/export?format=html" target="_blank">Printable HTML</a>

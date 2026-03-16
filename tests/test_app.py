@@ -5085,3 +5085,255 @@ def test_per_user_run_numbering_increments() -> None:
             db.execute(delete(AuditRun).where(AuditRun.user_id == uid))
             db.execute(delete(User).where(User.id == uid))
             db.commit()
+
+
+# ── PDF report tests ────────────────────────────────────────────────────────
+
+
+def _setup_report_user(name: str = "ReportUser") -> tuple[int, str]:
+    """Create a test user and return (user_id, email)."""
+    from app.services.auth import create_user
+
+    email = f"report_{name.lower()}@authtest.invalid"
+    with SessionLocal() as db:
+        user = create_user(db, email=email, password="password123", name=name)
+        return user.id, email
+
+
+def _teardown_report_user(uid: int) -> None:
+    from sqlalchemy import delete
+
+    with SessionLocal() as db:
+        from aaa_db.models import User
+
+        db.execute(delete(AuditRun).where(AuditRun.user_id == uid))
+        db.execute(delete(User).where(User.id == uid))
+        db.commit()
+
+
+def _create_run_for_user(uid: int) -> int:
+    """Insert a minimal AuditRun and return its id."""
+    with SessionLocal() as db:
+        run = AuditRun(
+            user_id=uid,
+            source_type="text",
+            source_name="brief.docx",
+            citation_count=1,
+            verified_count=1,
+        )
+        db.add(run)
+        db.commit()
+        return run.id
+
+
+def test_report_endpoint_returns_pdf() -> None:
+    """GET /history/{run_id}/report must return application/pdf."""
+    uid, email = _setup_report_user("PDFUser")
+    try:
+        run_id = _create_run_for_user(uid)
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post(
+                "/login", data={"email": email, "password": "password123"}, follow_redirects=True
+            )
+            resp = c.get(f"/history/{run_id}/report")
+        assert resp.status_code == 200
+        assert "application/pdf" in resp.headers["content-type"]
+        # Verify PDF magic bytes
+        assert resp.content[:4] == b"%PDF"
+    finally:
+        _teardown_report_user(uid)
+
+
+def test_report_content_disposition_is_attachment() -> None:
+    """PDF report response must trigger a download, not open in browser."""
+    uid, email = _setup_report_user("DispUser")
+    try:
+        run_id = _create_run_for_user(uid)
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post(
+                "/login", data={"email": email, "password": "password123"}, follow_redirects=True
+            )
+            resp = c.get(f"/history/{run_id}/report")
+        assert resp.status_code == 200
+        disp = resp.headers.get("content-disposition", "")
+        assert "attachment" in disp
+        assert ".pdf" in disp
+    finally:
+        _teardown_report_user(uid)
+
+
+def test_report_cross_user_access_denied() -> None:
+    """User B must not be able to download User A's report."""
+    uid_a, email_a = _setup_report_user("RepOwner")
+    uid_b, email_b = _setup_report_user("RepOther")
+    try:
+        run_id_a = _create_run_for_user(uid_a)
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post(
+                "/login", data={"email": email_b, "password": "password123"}, follow_redirects=True
+            )
+            resp = c.get(f"/history/{run_id_a}/report")
+        assert resp.status_code == 404
+    finally:
+        _teardown_report_user(uid_a)
+        _teardown_report_user(uid_b)
+
+
+def test_report_generator_contains_disclaimer() -> None:
+    """The PDF must contain the scope-and-limitations disclaimer text."""
+    import io
+    from datetime import datetime, timezone
+
+    import fitz  # PyMuPDF — already a project dependency
+
+    from aaa_db.models import AuditRun as _AuditRun
+    from aaa_db.models import CitationResultRecord as _CRR
+    from app.services.report_generator import generate_pdf_report
+
+    run = _AuditRun(
+        id=99,
+        source_type="text",
+        source_name="test.docx",
+        citation_count=1,
+        verified_count=1,
+        not_found_count=0,
+        ambiguous_count=0,
+        derived_count=0,
+        statute_count=0,
+        statute_verified_count=0,
+        error_count=0,
+        unverified_no_token_count=0,
+        created_at=datetime.now(tz=timezone.utc),
+    )
+    c = _CRR(
+        id=1,
+        raw_text="Brown v. Board, 347 U.S. 483",
+        citation_type="FullCaseCitation",
+        verification_status="VERIFIED",
+        resolution_method="direct",
+        verification_detail="Matched",
+        snippet="landmark",
+        audit_run_id=99,
+    )
+    run.citations = [c]
+    pdf_bytes = generate_pdf_report(run, user_run_number=1)
+
+    doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
+    full_text = "".join(page.get_text() for page in doc)
+    doc.close()
+
+    assert "does not constitute legal advice" in full_text
+    assert "CourtListener" in full_text
+    assert "KeyCite" in full_text or "Shepard" in full_text
+
+
+def test_report_generator_contains_fingerprint() -> None:
+    """The PDF must include the verification data fingerprint."""
+    import io
+    from datetime import datetime, timezone
+
+    import fitz
+
+    from aaa_db.models import AuditRun as _AuditRun
+    from aaa_db.models import CitationResultRecord as _CRR
+    from app.services.report_generator import _report_fingerprint, generate_pdf_report
+
+    run = _AuditRun(
+        id=42,
+        source_type="text",
+        source_name=None,
+        citation_count=1,
+        verified_count=1,
+        not_found_count=0,
+        ambiguous_count=0,
+        derived_count=0,
+        statute_count=0,
+        statute_verified_count=0,
+        error_count=0,
+        unverified_no_token_count=0,
+        created_at=datetime.now(tz=timezone.utc),
+    )
+    c = _CRR(
+        id=1,
+        raw_text="Smith v. Jones, 123 F.3d 456",
+        citation_type="FullCaseCitation",
+        verification_status="VERIFIED",
+        resolution_method="direct",
+        verification_detail="Matched",
+        snippet="",
+        audit_run_id=42,
+    )
+    run.citations = [c]
+    fingerprint = _report_fingerprint(run)
+    pdf_bytes = generate_pdf_report(run, user_run_number=1)
+
+    doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
+    full_text = "".join(page.get_text() for page in doc)
+    doc.close()
+
+    # The fingerprint's first chunk must appear in the report
+    first_chunk = fingerprint.split()[0]
+    assert first_chunk in full_text
+
+
+def test_report_generator_risk_assessment_high() -> None:
+    """A run with many NOT_FOUND citations should assess as HIGH risk."""
+    from aaa_db.models import AuditRun as _AuditRun
+    from app.services.report_generator import _risk_level
+
+    run = _AuditRun(
+        id=1,
+        source_type="text",
+        citation_count=10,
+        verified_count=1,
+        not_found_count=7,
+        ambiguous_count=2,
+        derived_count=0,
+        statute_count=0,
+        statute_verified_count=0,
+        error_count=0,
+        unverified_no_token_count=0,
+    )
+    run.citations = []
+    level, _ = _risk_level(run)
+    assert level == "HIGH"
+
+
+def test_report_generator_risk_assessment_low() -> None:
+    """A fully verified run should assess as LOW risk."""
+    from aaa_db.models import AuditRun as _AuditRun
+    from app.services.report_generator import _risk_level
+
+    run = _AuditRun(
+        id=1,
+        source_type="text",
+        citation_count=10,
+        verified_count=10,
+        not_found_count=0,
+        ambiguous_count=0,
+        derived_count=0,
+        statute_count=0,
+        statute_verified_count=0,
+        error_count=0,
+        unverified_no_token_count=0,
+    )
+    run.citations = []
+    level, _ = _risk_level(run)
+    assert level == "LOW"
+
+
+def test_report_history_detail_has_pdf_button() -> None:
+    """History detail page must contain a link to the PDF report endpoint."""
+    uid, email = _setup_report_user("BtnUser")
+    try:
+        run_id = _create_run_for_user(uid)
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post(
+                "/login", data={"email": email, "password": "password123"}, follow_redirects=True
+            )
+            resp = c.get(f"/history/{run_id}")
+        assert resp.status_code == 200
+        assert f"/history/{run_id}/report" in resp.text
+        assert "PDF" in resp.text
+    finally:
+        _teardown_report_user(uid)

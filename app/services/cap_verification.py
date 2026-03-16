@@ -64,14 +64,10 @@ def _get_json(url: str, params: dict[str, Any], timeout: int) -> dict | None:
     try:
         response = httpx.get(url, params=params, timeout=float(timeout), follow_redirects=False)
     except httpx.TimeoutException:
-        _warn_once(
-            "CAP API request timed out — treating CAP as unavailable for this run."
-        )
+        _warn_once("CAP API request timed out — treating CAP as unavailable for this run.")
         return None
     except httpx.RequestError as exc:
-        _warn_once(
-            f"CAP API connection error ({exc}) — treating CAP as unavailable for this run."
-        )
+        _warn_once(f"CAP API connection error ({exc}) — treating CAP as unavailable for this run.")
         return None
 
     # Redirect (301/302) means the API is decommissioned; the target is an HTML page.
@@ -83,9 +79,7 @@ def _get_json(url: str, params: dict[str, Any], timeout: int) -> dict | None:
         return None
 
     if not response.is_success:
-        _warn_once(
-            f"CAP API returned HTTP {response.status_code} — treating CAP as unavailable."
-        )
+        _warn_once(f"CAP API returned HTTP {response.status_code} — treating CAP as unavailable.")
         return None
 
     content_type = response.headers.get("content-type", "")
