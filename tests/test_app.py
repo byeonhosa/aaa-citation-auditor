@@ -914,7 +914,7 @@ def test_printable_html_export_route_returns_html() -> None:
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "AAA Export" in response.text
+    assert "FinalVerify" in response.text
 
 
 def test_dashboard_result_group_includes_export_link_for_current_results() -> None:
@@ -4058,10 +4058,11 @@ def test_nav_links_present_on_all_pages() -> None:
 
 
 def test_brand_name_in_header() -> None:
-    """The app brand name appears in the header on every page."""
-    for route in ["/", "/history", "/settings"]:
+    """The FinalVerify brand name appears in the header on app pages."""
+    for route in ["/history", "/settings"]:
         response = client.get(route)
-        assert "AAA Citation Auditor" in response.text, f"Brand not found on {route}"
+        assert "FinalVerify" in response.text, f"Brand not found on {route}"
+        assert "AAA Citation Auditor" not in response.text, f"Old brand still present on {route}"
 
 
 def test_footer_present_on_all_pages() -> None:
@@ -4860,3 +4861,177 @@ def test_bare_section_not_verified_by_courtlistener() -> None:
     )
     # None of the verified results should have raw_text of bare §
     assert all(r.raw_text != "§" for r in verified)
+
+
+# ── UX-fixes tests ─────────────────────────────────────────────────────────────
+
+
+def test_finalverify_brand_in_page_title() -> None:
+    """Page titles must use 'FinalVerify', not 'AAA Citation Auditor'."""
+    for route in ["/history", "/settings"]:
+        resp = client.get(route)
+        assert resp.status_code == 200
+        assert "FinalVerify" in resp.text, f"FinalVerify missing from title on {route}"
+        assert "AAA Citation Auditor" not in resp.text, f"Old brand in title on {route}"
+
+
+def test_settings_page_uses_finalverify_brand() -> None:
+    """Settings description text should say FinalVerify, not AAA Citation Auditor."""
+    resp = client.get("/settings")
+    assert resp.status_code == 200
+    assert "FinalVerify" in resp.text
+    assert "AAA Citation Auditor" not in resp.text
+
+
+def test_mobile_nav_css_media_query_exists() -> None:
+    """styles.css must have a mobile media query that adjusts the nav."""
+    resp = client.get("/static/styles.css")
+    assert resp.status_code == 200
+    assert "@media (max-width: 640px)" in resp.text
+    assert "nav-user" in resp.text
+    assert "flex-wrap: wrap" in resp.text
+
+
+def test_nav_user_span_has_title_attribute() -> None:
+    """The nav-user span must carry a title attribute for tooltip display."""
+    from app.services.auth import create_user
+
+    _email = "navuser_test@authtest.invalid"
+    with SessionLocal() as db:
+        user = create_user(db, email=_email, password="password123", name="NavTestUser")
+        uid = user.id
+    try:
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post(
+                "/login", data={"email": _email, "password": "password123"}, follow_redirects=True
+            )
+            resp = c.get("/history")
+        assert resp.status_code == 200
+        assert 'class="nav-user"' in resp.text
+        assert 'title="NavTestUser"' in resp.text
+    finally:
+        from sqlalchemy import delete
+
+        with SessionLocal() as db:
+            db.execute(delete(AuditRun).where(AuditRun.user_id == uid))
+            from aaa_db.models import User
+
+            db.execute(delete(User).where(User.id == uid))
+            db.commit()
+
+
+def test_header_shows_correct_user_name() -> None:
+    """Each user should see their own name, not another user's name."""
+    from app.services.auth import create_user
+
+    email_a = "showname_a@authtest.invalid"
+    email_b = "showname_b@authtest.invalid"
+    with SessionLocal() as db:
+        ua = create_user(db, email=email_a, password="password123", name="Alice Smith")
+        ub = create_user(db, email=email_b, password="password123", name="Bob Jones")
+        uid_a, uid_b = ua.id, ub.id
+    try:
+        with TestClient(app, raise_server_exceptions=True) as ca:
+            ca.post(
+                "/login", data={"email": email_a, "password": "password123"}, follow_redirects=True
+            )
+            resp_a = ca.get("/history")
+        assert b"Alice Smith" in resp_a.content
+        assert b"Bob Jones" not in resp_a.content
+
+        with TestClient(app, raise_server_exceptions=True) as cb:
+            cb.post(
+                "/login", data={"email": email_b, "password": "password123"}, follow_redirects=True
+            )
+            resp_b = cb.get("/history")
+        assert b"Bob Jones" in resp_b.content
+        assert b"Alice Smith" not in resp_b.content
+    finally:
+        from sqlalchemy import delete
+
+        with SessionLocal() as db:
+            from aaa_db.models import User
+
+            db.execute(delete(AuditRun).where(AuditRun.user_id.in_([uid_a, uid_b])))
+            db.execute(delete(User).where(User.id.in_([uid_a, uid_b])))
+            db.commit()
+
+
+def test_per_user_run_numbering_starts_at_one() -> None:
+    """Each user's first audit run should display as Run #1."""
+    from app.services.auth import create_user
+
+    email_a = "runnumber_a@authtest.invalid"
+    email_b = "runnumber_b@authtest.invalid"
+    with SessionLocal() as db:
+        ua = create_user(db, email=email_a, password="password123", name="RunA")
+        ub = create_user(db, email=email_b, password="password123", name="RunB")
+        uid_a, uid_b = ua.id, ub.id
+        run_a = AuditRun(user_id=uid_a, source_type="text", citation_count=0)
+        run_b = AuditRun(user_id=uid_b, source_type="text", citation_count=0)
+        db.add_all([run_a, run_b])
+        db.commit()
+        run_a_id, run_b_id = run_a.id, run_b.id
+    try:
+        with TestClient(app, raise_server_exceptions=True) as ca:
+            ca.post(
+                "/login", data={"email": email_a, "password": "password123"}, follow_redirects=True
+            )
+            history_resp = ca.get("/history")
+            detail_resp = ca.get(f"/history/{run_a_id}")
+        assert b"Run #1" in history_resp.content
+        assert b"Run #1" in detail_resp.content
+
+        with TestClient(app, raise_server_exceptions=True) as cb:
+            cb.post(
+                "/login", data={"email": email_b, "password": "password123"}, follow_redirects=True
+            )
+            history_resp_b = cb.get("/history")
+            detail_resp_b = cb.get(f"/history/{run_b_id}")
+        assert b"Run #1" in history_resp_b.content
+        assert b"Run #1" in detail_resp_b.content
+    finally:
+        from sqlalchemy import delete
+
+        with SessionLocal() as db:
+            from aaa_db.models import User
+
+            db.execute(delete(AuditRun).where(AuditRun.user_id.in_([uid_a, uid_b])))
+            db.execute(delete(User).where(User.id.in_([uid_a, uid_b])))
+            db.commit()
+
+
+def test_per_user_run_numbering_increments() -> None:
+    """A user's second run should show as Run #2."""
+    from app.services.auth import create_user
+
+    _email = "runnumber_inc@authtest.invalid"
+    with SessionLocal() as db:
+        user = create_user(db, email=_email, password="password123", name="RunInc")
+        uid = user.id
+        run1 = AuditRun(user_id=uid, source_type="text", citation_count=0)
+        run2 = AuditRun(user_id=uid, source_type="text", citation_count=0)
+        db.add_all([run1, run2])
+        db.commit()
+        run1_id, run2_id = run1.id, run2.id
+    try:
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post(
+                "/login", data={"email": _email, "password": "password123"}, follow_redirects=True
+            )
+            history_resp = c.get("/history")
+            detail1 = c.get(f"/history/{run1_id}")
+            detail2 = c.get(f"/history/{run2_id}")
+        assert b"Run #1" in history_resp.content
+        assert b"Run #2" in history_resp.content
+        assert b"Run #1" in detail1.content
+        assert b"Run #2" in detail2.content
+    finally:
+        from sqlalchemy import delete
+
+        with SessionLocal() as db:
+            from aaa_db.models import User
+
+            db.execute(delete(AuditRun).where(AuditRun.user_id == uid))
+            db.execute(delete(User).where(User.id == uid))
+            db.commit()

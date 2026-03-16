@@ -3,7 +3,7 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from aaa_db.models import (
@@ -289,9 +289,7 @@ def _upsert_resolution_cache(
         db.add(new_entry)
 
 
-def lookup_resolution_cache(
-    db: Session, current_user_id: int | None = None
-) -> dict[str, Any]:
+def lookup_resolution_cache(db: Session, current_user_id: int | None = None) -> dict[str, Any]:
     """Return cache entries as a dict keyed by normalized_cite.
 
     Each value is a plain dict with keys: cluster_id, case_name, court,
@@ -363,18 +361,14 @@ def clear_cache_entry(db: Session, normalized_cite: str) -> bool:
     if entry is None:
         return False
     if entry.trust_tier != "user_submitted":
-        logger.debug(
-            "Cache: refusing to clear %r (tier=%s)", normalized_cite, entry.trust_tier
-        )
+        logger.debug("Cache: refusing to clear %r (tier=%s)", normalized_cite, entry.trust_tier)
         return False
     db.delete(entry)
     db.commit()
     return True
 
 
-def upgrade_cache_entry_trust(
-    db: Session, normalized_cite: str, new_tier: str
-) -> bool:
+def upgrade_cache_entry_trust(db: Session, normalized_cite: str, new_tier: str) -> bool:
     """Upgrade a cache entry's trust_tier if new_tier has higher rank.
 
     Returns True if the entry was upgraded.
@@ -426,9 +420,20 @@ def list_audit_runs(db: Session, user_id: int | None = None) -> list[AuditRun]:
     return list(db.scalars(stmt).all())
 
 
-def get_audit_run(
-    db: Session, run_id: int, user_id: int | None = None
-) -> AuditRun | None:
+def get_user_run_number(db: Session, run_id: int, user_id: int | None) -> int:
+    """Return the per-user sequential run number for a given run (1 = oldest).
+
+    Counts how many runs by this user have ``id <= run_id``.  Because IDs are
+    monotonically increasing this equals the chronological position of the run
+    in the user's history.  Falls back to 1 if the count cannot be determined.
+    """
+    stmt = select(func.count()).select_from(AuditRun).where(AuditRun.id <= run_id)
+    if user_id is not None:
+        stmt = stmt.where(AuditRun.user_id == user_id)
+    return db.scalar(stmt) or 1
+
+
+def get_audit_run(db: Session, run_id: int, user_id: int | None = None) -> AuditRun | None:
     stmt = select(AuditRun).options(selectinload(AuditRun.citations)).where(AuditRun.id == run_id)
     run = db.scalar(stmt)
     if run is None:

@@ -9,7 +9,7 @@
 <div class="history-item">
   <div class="history-item-header">
     <div>
-      <h3><a href="/history/{{ run.id }}">Run #{{ run.id }}</a></h3>
+      <h3><a href="/history/{{ run.id }}">Run #{{ run.user_run_number }}</a></h3>
       <div class="run-meta">
         <span>{{ run.created_at }}</span>
         <span>{{ run.source_type }}{% if run.source_name %} — {{ run.source_name }}{% endif %}</span>

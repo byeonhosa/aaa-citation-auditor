@@ -29,9 +29,10 @@ def _db():
 
 
 def _set_session(request: Request, user) -> None:  # noqa: ANN001
+    request.session.clear()
     request.session["user_id"] = user.id
     request.session["user_email"] = user.email
-    request.session["user_name"] = user.name
+    request.session["user_name"] = user.name or ""
 
 
 @router.get("/register", response_class=HTMLResponse)

@@ -111,9 +111,7 @@ def _clean_users():
     """Delete all auth-test users and their runs before/after each test."""
     with SessionLocal() as db:
         # Remove runs whose user_id points to a test user first
-        test_users = db.scalars(
-            select(User).where(User.email.like(f"%{_EMAIL_DOMAIN}"))
-        ).all()
+        test_users = db.scalars(select(User).where(User.email.like(f"%{_EMAIL_DOMAIN}"))).all()
         test_ids = [u.id for u in test_users]
         if test_ids:
             db.execute(delete(AuditRun).where(AuditRun.user_id.in_(test_ids)))
@@ -121,9 +119,7 @@ def _clean_users():
         db.commit()
     yield
     with SessionLocal() as db:
-        test_users = db.scalars(
-            select(User).where(User.email.like(f"%{_EMAIL_DOMAIN}"))
-        ).all()
+        test_users = db.scalars(select(User).where(User.email.like(f"%{_EMAIL_DOMAIN}"))).all()
         test_ids = [u.id for u in test_users]
         if test_ids:
             db.execute(delete(AuditRun).where(AuditRun.user_id.in_(test_ids)))
@@ -313,8 +309,30 @@ def test_audit_associates_run_with_user():
         user = get_user_by_email(db, _email("tester"))
         assert user is not None
         run = db.scalar(
-            select(AuditRun)
-            .where(AuditRun.user_id == user.id)
-            .order_by(AuditRun.id.desc())
+            select(AuditRun).where(AuditRun.user_id == user.id).order_by(AuditRun.id.desc())
         )
     assert run is not None
+
+
+def test_new_login_does_not_carry_over_previous_users_name():
+    """Logging in as a new user must not show the previous user's name in the header."""
+    with _tc() as c:
+        # Register and login as user A
+        c.post(
+            "/register",
+            data={"email": _email("first"), "password": "password123", "name": "FirstUser"},
+            follow_redirects=True,
+        )
+        resp_a = c.get("/history", follow_redirects=False)
+    assert b"FirstUser" in resp_a.content
+
+    # A separate client (simulating a different browser session) logs in as user B
+    with _tc() as c2:
+        c2.post(
+            "/register",
+            data={"email": _email("second"), "password": "password123", "name": "SecondUser"},
+            follow_redirects=True,
+        )
+        resp_b = c2.get("/history", follow_redirects=False)
+    assert b"SecondUser" in resp_b.content
+    assert b"FirstUser" not in resp_b.content
