@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 from aaa_db.models import AuditRun
 from aaa_db.repository import (
+    clear_cache_entry,
     clear_resolution_cache,
     get_audit_run,
     get_cache_stats,
@@ -146,17 +147,20 @@ def citation_to_context(
                     break
         search_links = build_search_links(raw_text, case_name)
 
-    # Determine original resolution method for cached citations so the
-    # provenance label shows e.g. "Direct Match (cached)" rather than just
-    # "cached".
+    # Determine original resolution method and trust tier for cached citations so the
+    # provenance label shows e.g. "Direct Match (cached)" rather than just "cached".
     original_method: str | None = None
+    cache_trust_tier: str | None = None
     if resolution_method == "cache" and resolution_cache is not None:
         cache_key = getattr(citation, "normalized_text", None) or getattr(citation, "raw_text", "")
         cached_entry = resolution_cache.get(cache_key)
         if cached_entry:
             original_method = cached_entry.get("resolution_method")
+            cache_trust_tier = cached_entry.get("trust_tier")
 
-    provenance = get_provenance(status, resolution_method, original_method)
+    provenance = get_provenance(
+        status, resolution_method, original_method, trust_tier=cache_trust_tier
+    )
 
     return {
         "id": getattr(citation, "id", None),
@@ -172,6 +176,7 @@ def citation_to_context(
         "resolution_method": resolution_method,
         "search_links": search_links,
         "provenance": provenance,
+        "cache_trust_tier": cache_trust_tier,
     }
 
 
@@ -381,7 +386,9 @@ async def run_audit(
             continue
 
         with db_session() as db:
-            cache = lookup_resolution_cache(db)
+            cache = lookup_resolution_cache(
+                db, current_user_id=current_user["id"] if current_user else None
+            )
             statute_cache = lookup_statute_cache(db)
             local_index = LocalIndexLookup(db) if eff.local_index_enabled else None
         citation_results = verify_citations(
@@ -525,7 +532,9 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
             raise HTTPException(status_code=404, detail="Audit run not found")
 
         run_context = run_to_context(run)
-        cache = lookup_resolution_cache(db)
+        cache = lookup_resolution_cache(
+            db, current_user_id=current_user["id"] if current_user else None
+        )
         citations = [
             citation_to_context(citation, resolution_cache=cache) for citation in run.citations
         ]
@@ -573,7 +582,9 @@ def regenerate_memo(request: Request, run_id: int) -> RedirectResponse:
             raise HTTPException(status_code=404, detail="Audit run not found")
 
         run_context = run_to_context(run)
-        cache = lookup_resolution_cache(db)
+        cache = lookup_resolution_cache(
+            db, current_user_id=current_user["id"] if current_user else None
+        )
         citations_ctx = [citation_to_context(c, resolution_cache=cache) for c in run.citations]
         verification_summary = summarize_verification_statuses(run.citations)
 
@@ -685,6 +696,7 @@ def resolve_citation_route(
             selected_cluster_id=cluster_id,
             resolution_method="user",
             candidate_metadata=candidate_metadata,
+            user_id=current_user["id"] if current_user else None,
         )
 
     logger.info(
@@ -694,6 +706,24 @@ def resolve_citation_route(
         run_id,
     )
     return RedirectResponse(url=f"/history/{run_id}", status_code=303)
+
+
+@router.post("/cache/report-incorrect")
+async def report_cache_incorrect(
+    request: Request,
+    normalized_cite: str = Form(...),
+    redirect_to: str = Form(default="/history"),
+) -> RedirectResponse:
+    """Clear a user_submitted cache entry reported as incorrect."""
+    with db_session() as db:
+        cleared = clear_cache_entry(db, normalized_cite)
+    if cleared:
+        logger.info("Cache entry cleared via report-incorrect: %r", normalized_cite)
+    else:
+        logger.debug(
+            "report-incorrect: entry %r not cleared (not found or protected)", normalized_cite
+        )
+    return RedirectResponse(url=redirect_to, status_code=303)
 
 
 @router.get("/settings", response_class=HTMLResponse)

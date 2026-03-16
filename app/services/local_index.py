@@ -36,6 +36,7 @@ import json
 import logging
 import re
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,7 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from aaa_db.models import LocalCitationIndex
+from aaa_db.models import CitationResolutionCache, LocalCitationIndex
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +239,21 @@ class ImportStats:
         return time.perf_counter() - self.started_at
 
 
+@dataclass
+class IncrementalImportStats:
+    """Statistics for an incremental (update-mode) import."""
+
+    inserted: int = 0
+    corrected: int = 0
+    unchanged: int = 0
+    total_processed: int = 0
+    upgraded_to_authoritative: int = 0
+    elapsed_start: float = field(default_factory=time.perf_counter)
+
+    def elapsed_seconds(self) -> float:
+        return time.perf_counter() - self.elapsed_start
+
+
 def import_from_csv(
     filepath: str | Path,
     db: Session,
@@ -336,6 +352,161 @@ def import_from_csv(
         stats.citations_indexed,
         stats.citations_skipped,
         stats.duplicates_skipped,
+        elapsed,
+    )
+    return stats
+
+
+def import_incremental(
+    filepath: str | Path,
+    db: Session,
+    *,
+    case_lookup_filepath: str | Path | None = None,
+) -> IncrementalImportStats:
+    """Incrementally update the local citation index from a CourtListener bulk CSV.
+
+    Unlike ``import_from_csv`` (which upserts every row unconditionally), this
+    function distinguishes between:
+
+    - **inserted** – new citations not previously in the index
+    - **corrected** – citations whose cluster_id changed (data correction)
+    - **unchanged** – citations whose cluster_id already matches
+
+    After processing all rows it also checks whether any ``user_submitted``
+    cache entries can be upgraded to ``authoritative`` because the bulk data
+    confirms the same cluster_id.
+
+    Parameters
+    ----------
+    filepath:
+        Path to the CourtListener CSV file.
+    db:
+        SQLAlchemy session.  The caller is responsible for closing it.
+    case_lookup_filepath:
+        Optional path to ``opinion-clusters.csv`` for metadata enrichment.
+
+    Returns
+    -------
+    IncrementalImportStats with counters and timing.
+    """
+    filepath = Path(filepath)
+    stats = IncrementalImportStats()
+
+    logger.info("Starting incremental import from %s", filepath)
+
+    case_lookup: dict[int, dict[str, str]] = {}
+    if case_lookup_filepath:
+        case_lookup = _load_case_lookup(Path(case_lookup_filepath))
+
+    # Track already-seen normalized_cite values in this run
+    seen_in_run: set[str] = set()
+
+    batch_entries: list[LocalCitationIndex] = []
+
+    def _process_entry(entry: LocalCitationIndex) -> None:
+        if entry.normalized_cite in seen_in_run:
+            return
+        seen_in_run.add(entry.normalized_cite)
+
+        existing = db.scalar(
+            select(LocalCitationIndex).where(
+                LocalCitationIndex.normalized_cite == entry.normalized_cite
+            )
+        )
+        if existing is None:
+            db.add(entry)
+            stats.inserted += 1
+        elif existing.cluster_id != entry.cluster_id:
+            existing.cluster_id = entry.cluster_id
+            existing.case_name = entry.case_name
+            existing.court_id = entry.court_id
+            existing.date_filed = entry.date_filed
+            existing.reporter = entry.reporter
+            existing.volume = entry.volume
+            existing.page = entry.page
+            existing.source = entry.source
+            existing.imported_at = datetime.now(timezone.utc)
+            stats.corrected += 1
+        else:
+            stats.unchanged += 1
+        stats.total_processed += 1
+
+    with open(filepath, encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        if reader.fieldnames is None:
+            raise ValueError(f"CSV file has no header row: {filepath}")
+
+        fmt = _detect_format(list(reader.fieldnames))
+        logger.info("Detected format: %r from %s", fmt, filepath.name)
+
+        for row_num, row in enumerate(reader, start=2):
+            try:
+                if fmt == "citations":
+                    entry = _parse_citations_row(row, case_lookup)
+                    entries = [entry] if entry is not None else []
+                else:
+                    entries = _parse_clusters_row(row)
+            except Exception as exc:
+                logger.debug("Row %d: skipping malformed row (%s): %s", row_num, exc, row)
+                continue
+
+            for entry in entries:
+                batch_entries.append(entry)
+
+            if len(batch_entries) >= _BATCH_SIZE:
+                for e in batch_entries:
+                    _process_entry(e)
+                db.commit()
+                batch_entries.clear()
+
+            if stats.total_processed % _LOG_EVERY == 0 and stats.total_processed > 0:
+                elapsed = stats.elapsed_seconds()
+                logger.info(
+                    "Incremental import progress: %d processed (%.1fs)",
+                    stats.total_processed,
+                    elapsed,
+                )
+
+    for e in batch_entries:
+        _process_entry(e)
+    if batch_entries:
+        db.commit()
+
+    # Upgrade user_submitted cache entries confirmed by bulk data
+    user_entries = list(
+        db.scalars(
+            select(CitationResolutionCache).where(
+                CitationResolutionCache.trust_tier == "user_submitted"
+            )
+        ).all()
+    )
+    upgraded = 0
+    for cache_entry in user_entries:
+        bulk = db.scalar(
+            select(LocalCitationIndex).where(
+                LocalCitationIndex.normalized_cite == cache_entry.normalized_cite,
+                LocalCitationIndex.cluster_id == cache_entry.selected_cluster_id,
+            )
+        )
+        if bulk is not None:
+            cache_entry.trust_tier = "authoritative"
+            upgraded += 1
+            logger.info(
+                "Upgraded cache entry %r to authoritative via bulk data",
+                cache_entry.normalized_cite,
+            )
+    if upgraded:
+        db.commit()
+    stats.upgraded_to_authoritative = upgraded
+
+    elapsed = stats.elapsed_seconds()
+    logger.info(
+        "Incremental import complete: %d inserted, %d corrected, %d unchanged, "
+        "%d cache entries upgraded, %.1fs total",
+        stats.inserted,
+        stats.corrected,
+        stats.unchanged,
+        upgraded,
         elapsed,
     )
     return stats

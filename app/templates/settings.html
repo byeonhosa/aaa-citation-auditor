@@ -241,6 +241,16 @@
     {% elif cache_stats.total == 0 %}
     <p style="color:var(--text-2);font-size:0.875rem">No cached resolutions yet. Run an audit to start building the cache.</p>
     {% endif %}
+    {% if cache_stats.trust_tiers %}
+    <div class="stat-row" style="margin-top:0.5rem;display:flex;gap:1rem;flex-wrap:wrap">
+      <span>Authoritative: <strong>{{ cache_stats.trust_tiers.authoritative }}</strong></span>
+      <span>Algorithmic: <strong>{{ cache_stats.trust_tiers.algorithmic }}</strong></span>
+      <span>User-submitted: <strong>{{ cache_stats.trust_tiers.user_submitted }}</strong></span>
+      {% if cache_stats.trust_tiers.disputed > 0 %}
+      <span>Disputed: <strong style="color:var(--warning, orange)">{{ cache_stats.trust_tiers.disputed }}</strong></span>
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
   {% endif %}
   {% if cache_cleared %}

@@ -142,6 +142,7 @@ def get_provenance(
     status: str | None,
     resolution_method: str | None,
     original_method: str | None = None,
+    trust_tier: str | None = None,
 ) -> ProvenanceInfo:
     """Return the :class:`ProvenanceInfo` for a citation.
 
@@ -156,6 +157,10 @@ def get_provenance(
         originally populated the cache entry (e.g. ``"heuristic"``).  When
         provided, the provenance label is derived from the original method
         with ``" (cached)"`` appended.
+    trust_tier:
+        Optional trust tier of the cache entry (``"authoritative"``,
+        ``"algorithmic"``, or ``"user_submitted"``).  When ``"user_submitted"``,
+        appends ``" (user-submitted)"`` to the label.
     """
     if status == "VERIFIED":
         if resolution_method == "cache":
@@ -163,9 +168,14 @@ def get_provenance(
             base_label, base_desc, base_class = _VERIFIED_METHOD_MAP.get(
                 base, _VERIFIED_METHOD_MAP[None]
             )
+            label = f"{base_label} (cached)"
+            description = f"{base_desc} Result served from local cache."
+            if trust_tier == "user_submitted":
+                label = f"{label} (user-submitted)"
+                description = f"{description} Originally resolved by a user."
             return ProvenanceInfo(
-                label=f"{base_label} (cached)",
-                description=f"{base_desc} Result served from local cache.",
+                label=label,
+                description=description,
                 css_class=f"{base_class}-cached",
             )
         entry = _VERIFIED_METHOD_MAP.get(resolution_method, _VERIFIED_METHOD_MAP[None])
@@ -285,5 +295,12 @@ PROVENANCE_HELP: list[tuple[str, str]] = [
     (
         "Derived",
         "This is an Id. or short-form citation that refers to the immediately preceding citation.",
+    ),
+    (
+        "Trust tiers",
+        "Cache entries carry a trust tier: 'authoritative' (direct match or local index),"
+        " 'algorithmic' (heuristic, search fallback, etc.), or 'user_submitted' (manually"
+        " selected by a specific user). User-submitted entries are only auto-applied for the"
+        " user who created them; other users see them only as suggestions.",
     ),
 ]
