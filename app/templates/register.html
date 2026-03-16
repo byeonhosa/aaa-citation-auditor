@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="max-width:420px;margin:3rem auto;">
+  <div class="card-title">
+    <h2>Create account</h2>
+  </div>
+  {% if errors %}
+  <div class="warning-banner">
+    <ul style="margin:0;padding-left:1.2rem;">
+      {% for err in errors %}<li>{{ err }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  <form method="post" action="/register">
+    <div class="form-group">
+      <label for="name">Name <span style="color:var(--text-muted);font-weight:normal;">(optional)</span></label>
+      <input
+        type="text"
+        id="name"
+        name="name"
+        value="{{ name or '' }}"
+        autocomplete="name"
+        class="form-control"
+      />
+    </div>
+    <div class="form-group">
+      <label for="email">Email</label>
+      <input
+        type="email"
+        id="email"
+        name="email"
+        value="{{ email or '' }}"
+        required
+        autocomplete="email"
+        class="form-control"
+      />
+    </div>
+    <div class="form-group">
+      <label for="password">Password <span style="color:var(--text-muted);font-weight:normal;">(min. 8 characters)</span></label>
+      <input
+        type="password"
+        id="password"
+        name="password"
+        required
+        minlength="8"
+        autocomplete="new-password"
+        class="form-control"
+      />
+    </div>
+    <button type="submit" class="btn btn-primary" style="width:100%;margin-top:1rem;">Create account</button>
+  </form>
+  <p style="margin-top:1rem;text-align:center;">
+    Already have an account? <a href="/login">Log in</a>
+  </p>
+</div>
+{% endblock %}

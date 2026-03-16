@@ -7,11 +7,13 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.sessions import SessionMiddleware
 
 from aaa_db.session import SessionLocal
 from aaa_db.telemetry_repository import get_or_create_install_id, record_telemetry_event
 from alembic import command as alembic_command
 from app.routes.api import router as api_router
+from app.routes.auth import router as auth_router
 from app.routes.pages import router as pages_router
 from app.settings import PROJECT_ROOT, STATIC_DIR, TEMPLATES_DIR, settings
 
@@ -44,11 +46,17 @@ def create_app() -> FastAPI:
     )
 
     app = FastAPI(title=settings.app_name, debug=settings.debug)
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.secret_key,
+        max_age=86400,  # 24 hours
+    )
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     # Apply pending database migrations (replaces Base.metadata.create_all).
     _run_migrations()
 
+    app.include_router(auth_router)
     app.include_router(pages_router)
     app.include_router(api_router)
 

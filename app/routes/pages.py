@@ -37,6 +37,7 @@ from app.services.audit import (
     extract_citations,
     resolve_id_citations,
 )
+from app.services.auth import users_exist
 from app.services.disambiguation import extract_case_name_from_text
 from app.services.exporters import (
     export_csv_for_run,
@@ -83,6 +84,32 @@ def _is_courtlistener_unreachable(citation_results: list) -> bool:
 
 PASTED_TEXT_FORM = Form(default="")
 UPLOADED_FILES_FORM = File(default=None)
+
+
+def _user_ctx(request: Request) -> dict | None:
+    """Return session user dict or None if not logged in."""
+    user_id = request.session.get("user_id")
+    if user_id is None:
+        return None
+    return {
+        "id": user_id,
+        "email": request.session.get("user_email", ""),
+        "name": request.session.get("user_name", ""),
+    }
+
+
+def _auth_redirect(request: Request) -> RedirectResponse | None:
+    """Return a redirect to /login if auth is required but user not in session.
+
+    Returns None when auth is not enforced (no users in DB) or user is already
+    authenticated.
+    """
+    with db_session() as db:
+        if not users_exist(db):
+            return None
+    if _user_ctx(request) is None:
+        return RedirectResponse(url="/login", status_code=303)
+    return None
 
 
 @contextmanager
@@ -273,12 +300,15 @@ def render_dashboard(
             "validation_message": validation_message,
             "total_citations": total_citations,
             "provenance_help": PROVENANCE_HELP,
+            "current_user": _user_ctx(request),
         },
     )
 
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request) -> HTMLResponse:
+    if redirect := _auth_redirect(request):
+        return redirect
     return render_dashboard(request)
 
 
@@ -288,6 +318,9 @@ async def run_audit(
     pasted_text: str = PASTED_TEXT_FORM,
     uploaded_files: list[UploadFile] | None = UPLOADED_FILES_FORM,
 ) -> HTMLResponse:
+    if redirect := _auth_redirect(request):
+        return redirect
+    current_user = _user_ctx(request)
     shared_warnings: list[str] = []
     result_groups: list[dict[str, Any]] = []
 
@@ -410,6 +443,7 @@ async def run_audit(
                 input_text=source.text,
                 warnings=group_warnings,
                 citations=citation_results,
+                user_id=current_user["id"] if current_user else None,
             )
 
         latency_ms = int((perf_counter() - started) * 1000)
@@ -480,8 +514,14 @@ async def run_audit(
 
 @router.get("/history", response_class=HTMLResponse)
 def history(request: Request) -> HTMLResponse:
+    if redirect := _auth_redirect(request):
+        return redirect
+    current_user = _user_ctx(request)
     with db_session() as db:
-        runs = [run_to_context(run) for run in list_audit_runs(db)]
+        runs = [
+            run_to_context(run)
+            for run in list_audit_runs(db, user_id=current_user["id"] if current_user else None)
+        ]
 
     _record_event_safely(event_type="history_viewed")
 
@@ -491,14 +531,18 @@ def history(request: Request) -> HTMLResponse:
         context={
             "title": "History",
             "runs": runs,
+            "current_user": current_user,
         },
     )
 
 
 @router.get("/history/{run_id}", response_class=HTMLResponse)
 def history_detail(request: Request, run_id: int) -> HTMLResponse:
+    if redirect := _auth_redirect(request):
+        return redirect
+    current_user = _user_ctx(request)
     with db_session() as db:
-        run = get_audit_run(db, run_id)
+        run = get_audit_run(db, run_id, user_id=current_user["id"] if current_user else None)
         if run is None:
             _record_event_safely(event_type="missing_run_404")
             raise HTTPException(status_code=404, detail="Audit run not found")
@@ -537,6 +581,7 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
             "provenance_breakdown": provenance_breakdown,
             "provenance_help": PROVENANCE_HELP,
             "ai_memo": ai_memo,
+            "current_user": current_user,
         },
     )
 
@@ -544,8 +589,11 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
 @router.post("/history/{run_id}/regenerate-memo", response_class=HTMLResponse)
 def regenerate_memo(request: Request, run_id: int) -> RedirectResponse:
     """Explicitly regenerate the AI memo for a saved run and re-persist it."""
+    if redirect := _auth_redirect(request):
+        return redirect
+    current_user = _user_ctx(request)
     with db_session() as db:
-        run = get_audit_run(db, run_id)
+        run = get_audit_run(db, run_id, user_id=current_user["id"] if current_user else None)
         if run is None:
             raise HTTPException(status_code=404, detail="Audit run not found")
 
@@ -575,8 +623,11 @@ def regenerate_memo(request: Request, run_id: int) -> RedirectResponse:
 
 @router.get("/history/{run_id}/export")
 def export_run(request: Request, run_id: int, format: str = Query(default="markdown")) -> Response:
+    if redirect := _auth_redirect(request):
+        return redirect
+    current_user = _user_ctx(request)
     with db_session() as db:
-        run = get_audit_run(db, run_id)
+        run = get_audit_run(db, run_id, user_id=current_user["id"] if current_user else None)
         if run is None:
             _record_event_safely(event_type="missing_run_404")
             raise HTTPException(status_code=404, detail="Audit run not found")
@@ -618,7 +669,13 @@ def resolve_citation_route(
     citation_id: int,
     cluster_id: int = Form(...),
 ) -> RedirectResponse:
+    if redirect := _auth_redirect(request):
+        return redirect
+    current_user = _user_ctx(request)
     with db_session() as db:
+        run_check = get_audit_run(db, run_id, user_id=current_user["id"] if current_user else None)
+        if run_check is None:
+            raise HTTPException(status_code=404, detail="Audit run not found")
         citation = get_citation(db, citation_id)
         if citation is None or citation.audit_run_id != run_id:
             raise HTTPException(status_code=404, detail="Citation not found")
@@ -670,6 +727,8 @@ def resolve_citation_route(
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
+    if redirect := _auth_redirect(request):
+        return redirect
     with db_session() as db:
         ui = get_all_ui_settings(db)
         cache_stats = get_cache_stats(db)
@@ -683,6 +742,7 @@ def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
             "saved": saved,
             "cache_stats": cache_stats,
             "local_index_stats": local_index_stats,
+            "current_user": _user_ctx(request),
         },
     )
 
@@ -728,6 +788,8 @@ _CHECKBOX_KEYS = {
 
 @router.post("/settings", response_class=HTMLResponse)
 async def save_settings(request: Request) -> RedirectResponse:
+    if redirect := _auth_redirect(request):
+        return redirect
     form = await request.form()
 
     with db_session() as db:
@@ -756,6 +818,8 @@ async def save_settings(request: Request) -> RedirectResponse:
 
 @router.post("/settings/clear-cache", response_class=HTMLResponse)
 def clear_cache(request: Request) -> HTMLResponse:
+    if redirect := _auth_redirect(request):
+        return redirect
     with db_session() as db:
         count = clear_resolution_cache(db)
         ui = get_all_ui_settings(db)
@@ -772,5 +836,6 @@ def clear_cache(request: Request) -> HTMLResponse:
             "cache_cleared_count": count,
             "cache_stats": cache_stats,
             "local_index_stats": local_index_stats,
+            "current_user": _user_ctx(request),
         },
     )

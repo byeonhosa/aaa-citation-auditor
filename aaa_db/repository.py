@@ -3,7 +3,7 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from aaa_db.models import (
@@ -74,6 +74,7 @@ def save_audit_run(
     input_text: str,
     warnings: Sequence[str],
     citations: Sequence[CitationResult],
+    user_id: int | None = None,
 ) -> AuditRun:
     status_counts = {
         "VERIFIED": 0,
@@ -91,6 +92,7 @@ def save_audit_run(
             status_counts[citation.verification_status] += 1
 
     audit_run = AuditRun(
+        user_id=user_id,
         source_type=source_type,
         source_name=source_name,
         citation_count=len(citations),
@@ -267,14 +269,25 @@ def save_memo_for_run(db: Session, run_id: int, memo_json: str) -> None:
         logger.debug("AI memo persisted for run id=%d", run_id)
 
 
-def list_audit_runs(db: Session) -> list[AuditRun]:
+def list_audit_runs(db: Session, user_id: int | None = None) -> list[AuditRun]:
     stmt = select(AuditRun).order_by(AuditRun.created_at.desc(), AuditRun.id.desc())
+    if user_id is not None:
+        # Show the user's own runs plus runs not yet associated with any user
+        stmt = stmt.where(or_(AuditRun.user_id == user_id, AuditRun.user_id.is_(None)))
     return list(db.scalars(stmt).all())
 
 
-def get_audit_run(db: Session, run_id: int) -> AuditRun | None:
+def get_audit_run(
+    db: Session, run_id: int, user_id: int | None = None
+) -> AuditRun | None:
     stmt = select(AuditRun).options(selectinload(AuditRun.citations)).where(AuditRun.id == run_id)
-    return db.scalar(stmt)
+    run = db.scalar(stmt)
+    if run is None:
+        return None
+    # Ownership check: NULL-owner runs are accessible to any logged-in user
+    if user_id is not None and run.user_id is not None and run.user_id != user_id:
+        return None
+    return run
 
 
 def get_citation(db: Session, citation_id: int) -> CitationResultRecord | None:

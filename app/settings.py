@@ -1,5 +1,7 @@
+import secrets
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APP_DIR = Path(__file__).resolve().parent
@@ -46,6 +48,8 @@ class Settings(BaseSettings):
     max_citations_per_run: int = 500
 
     log_level: str = "INFO"
+
+    secret_key: str = Field(default_factory=lambda: secrets.token_hex(32))
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
