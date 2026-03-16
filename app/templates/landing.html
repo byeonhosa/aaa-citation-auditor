@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FinalVerify — Citation Verification for Legal Professionals</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <style>
+      /* ── Landing page overrides & marketing styles ── */
+      html {
+        scroll-behavior: smooth;
+      }
+
+      /* Reset container max-width for landing sections */
+      .lp-container {
+        margin: 0 auto;
+        max-width: 1100px;
+        padding: 0 1.5rem;
+      }
+
+      /* ── Landing header ── */
+      .lp-header {
+        background: #1a2332;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+
+      .lp-header-inner {
+        align-items: center;
+        display: flex;
+        height: 56px;
+        justify-content: space-between;
+        margin: 0 auto;
+        max-width: 1100px;
+        padding: 0 1.5rem;
+      }
+
+      .lp-brand {
+        color: #ffffff;
+        font-size: 1.1rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        text-decoration: none;
+      }
+
+      .lp-brand:hover {
+        color: #e2e8f0;
+        text-decoration: none;
+      }
+
+      .lp-nav {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+      }
+
+      .lp-nav a {
+        border-radius: 4px;
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 0.875rem;
+        font-weight: 500;
+        padding: 0.4rem 0.85rem;
+        text-decoration: none;
+        transition: background 0.15s, color 0.15s;
+      }
+
+      .lp-nav a:hover {
+        background: rgba(255, 255, 255, 0.12);
+        color: #ffffff;
+        text-decoration: none;
+      }
+
+      .lp-nav .nav-cta {
+        background: #2563eb;
+        color: #ffffff;
+        border-radius: 4px;
+      }
+
+      .lp-nav .nav-cta:hover {
+        background: #1d4ed8;
+        text-decoration: none;
+      }
+
+      /* ── Hero ── */
+      .lp-hero {
+        background: #1a2332;
+        color: #ffffff;
+        padding: 80px 0 88px;
+        text-align: center;
+      }
+
+      .lp-hero h1 {
+        color: #ffffff;
+        font-size: 2.75rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        line-height: 1.15;
+        margin-bottom: 1.25rem;
+      }
+
+      .lp-hero p {
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 1.15rem;
+        line-height: 1.65;
+        margin: 0 auto 2.25rem;
+        max-width: 640px;
+      }
+
+      .lp-hero-buttons {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+
+      .lp-btn-primary {
+        background: #2563eb;
+        border: 2px solid #2563eb;
+        border-radius: 6px;
+        color: #ffffff;
+        display: inline-block;
+        font-size: 1rem;
+        font-weight: 600;
+        padding: 0.75rem 2rem;
+        text-decoration: none;
+        transition: background 0.15s, border-color 0.15s;
+      }
+
+      .lp-btn-primary:hover {
+        background: #1d4ed8;
+        border-color: #1d4ed8;
+        text-decoration: none;
+      }
+
+      .lp-btn-secondary {
+        background: transparent;
+        border: 2px solid rgba(255, 255, 255, 0.55);
+        border-radius: 6px;
+        color: #ffffff;
+        display: inline-block;
+        font-size: 1rem;
+        font-weight: 600;
+        padding: 0.75rem 2rem;
+        text-decoration: none;
+        transition: background 0.15s, border-color 0.15s;
+      }
+
+      .lp-btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.10);
+        border-color: rgba(255, 255, 255, 0.80);
+        color: #ffffff;
+        text-decoration: none;
+      }
+
+      /* ── Section shared ── */
+      .lp-section {
+        padding: 72px 0;
+      }
+
+      .lp-section-alt {
+        background: #f8f9fa;
+        padding: 72px 0;
+      }
+
+      .lp-section-title {
+        color: #1a2332;
+        font-size: 1.9rem;
+        font-weight: 700;
+        letter-spacing: -0.015em;
+        margin-bottom: 1rem;
+        text-align: center;
+      }
+
+      .lp-section-lead {
+        color: #475569;
+        font-size: 1.05rem;
+        line-height: 1.65;
+        margin: 0 auto 2.5rem;
+        max-width: 680px;
+        text-align: center;
+      }
+
+      /* ── Problem section ── */
+      .lp-problem-list {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .lp-problem-item {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-left: 4px solid #b91c1c;
+        border-radius: 8px;
+        padding: 1.25rem 1.5rem;
+        color: #1a1a1a;
+        font-size: 0.975rem;
+        line-height: 1.6;
+      }
+
+      /* ── Feature cards ── */
+      .lp-features-grid {
+        display: grid;
+        gap: 1.25rem;
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .lp-feature-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 24px;
+      }
+
+      .lp-feature-icon {
+        align-items: center;
+        background: #eff6ff;
+        border-radius: 8px;
+        display: flex;
+        height: 44px;
+        justify-content: center;
+        margin-bottom: 1rem;
+        width: 44px;
+      }
+
+      .lp-feature-icon svg {
+        color: #2563eb;
+        height: 22px;
+        width: 22px;
+      }
+
+      .lp-feature-card h3 {
+        color: #1a2332;
+        font-size: 1.075rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+      }
+
+      .lp-feature-card p {
+        color: #475569;
+        font-size: 0.9375rem;
+        line-height: 1.6;
+        margin: 0;
+      }
+
+      /* ── How it works ── */
+      .lp-steps {
+        counter-reset: steps;
+        display: grid;
+        gap: 1.25rem;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .lp-step {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        counter-increment: steps;
+        padding: 24px;
+        position: relative;
+      }
+
+      .lp-step::before {
+        background: #1a2332;
+        border-radius: 50%;
+        color: #ffffff;
+        content: counter(steps);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.85rem;
+        font-weight: 700;
+        height: 32px;
+        margin-bottom: 0.85rem;
+        width: 32px;
+      }
+
+      .lp-step h3 {
+        color: #1a2332;
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 0.4rem;
+      }
+
+      .lp-step p {
+        color: #475569;
+        font-size: 0.9rem;
+        line-height: 1.55;
+        margin: 0;
+      }
+
+      /* ── Trust section ── */
+      .lp-trust-list {
+        list-style: none;
+        margin: 0 auto;
+        max-width: 620px;
+        padding: 0;
+      }
+
+      .lp-trust-list li {
+        border-bottom: 1px solid #e5e7eb;
+        color: #1a1a1a;
+        font-size: 1rem;
+        line-height: 1.5;
+        padding: 0.85rem 0 0.85rem 2rem;
+        position: relative;
+      }
+
+      .lp-trust-list li:last-child {
+        border-bottom: none;
+      }
+
+      .lp-trust-list li::before {
+        color: #15803d;
+        content: "✓";
+        font-weight: 700;
+        left: 0;
+        position: absolute;
+      }
+
+      /* ── Pricing ── */
+      .lp-pricing-grid {
+        display: grid;
+        gap: 1.5rem;
+        grid-template-columns: repeat(2, 1fr);
+        margin: 0 auto;
+        max-width: 700px;
+      }
+
+      .lp-price-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 32px 28px;
+        text-align: center;
+      }
+
+      .lp-price-card.featured {
+        border-color: #2563eb;
+        border-width: 2px;
+      }
+
+      .lp-price-card h3 {
+        color: #1a2332;
+        font-size: 1.25rem;
+        font-weight: 700;
+        margin-bottom: 0.75rem;
+      }
+
+      .lp-price-badge {
+        background: #eff6ff;
+        border-radius: 20px;
+        color: #1d4ed8;
+        display: inline-block;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        margin-bottom: 1rem;
+        padding: 0.25rem 0.85rem;
+        text-transform: uppercase;
+      }
+
+      .lp-price-desc {
+        color: #475569;
+        font-size: 0.9375rem;
+        line-height: 1.6;
+        margin-bottom: 1.75rem;
+      }
+
+      .lp-btn-disabled {
+        background: #e5e7eb;
+        border: 2px solid #e5e7eb;
+        border-radius: 6px;
+        color: #9ca3af;
+        cursor: not-allowed;
+        display: inline-block;
+        font-size: 0.9375rem;
+        font-weight: 600;
+        padding: 0.65rem 1.5rem;
+        text-decoration: none;
+      }
+
+      /* ── Final CTA ── */
+      .lp-cta {
+        background: #1a2332;
+        color: #ffffff;
+        padding: 72px 0;
+        text-align: center;
+      }
+
+      .lp-cta h2 {
+        color: #ffffff;
+        font-size: 1.9rem;
+        font-weight: 700;
+        margin-bottom: 1.5rem;
+      }
+
+      .lp-cta-sub {
+        color: rgba(255, 255, 255, 0.75);
+        display: block;
+        font-size: 0.9375rem;
+        margin-top: 1.25rem;
+        text-decoration: none;
+      }
+
+      .lp-cta-sub:hover {
+        color: #ffffff;
+        text-decoration: underline;
+      }
+
+      /* ── Footer ── */
+      .lp-footer {
+        background: #f8f9fa;
+        border-top: 1px solid #e5e7eb;
+        padding: 28px 0;
+      }
+
+      .lp-footer-inner {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
+
+      .lp-footer-brand {
+        color: #475569;
+        font-size: 0.875rem;
+      }
+
+      .lp-footer-links {
+        display: flex;
+        gap: 1.25rem;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .lp-footer-links a {
+        color: #475569;
+        font-size: 0.875rem;
+        text-decoration: none;
+      }
+
+      .lp-footer-links a:hover {
+        color: #1a2332;
+        text-decoration: underline;
+      }
+
+      /* ── Responsive ── */
+      @media (max-width: 768px) {
+        .lp-hero {
+          padding: 48px 0 52px;
+        }
+
+        .lp-hero h1 {
+          font-size: 1.9rem;
+        }
+
+        .lp-hero p {
+          font-size: 1rem;
+        }
+
+        .lp-section,
+        .lp-section-alt {
+          padding: 40px 0;
+        }
+
+        .lp-section-title {
+          font-size: 1.5rem;
+        }
+
+        .lp-features-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .lp-pricing-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .lp-cta {
+          padding: 48px 0;
+        }
+
+        .lp-cta h2 {
+          font-size: 1.5rem;
+        }
+
+        .lp-footer-inner {
+          flex-direction: column;
+          text-align: center;
+        }
+
+        .lp-footer-links {
+          justify-content: center;
+        }
+      }
+    </style>
+  </head>
+  <body>
+
+    <!-- ── Header ── -->
+    <header class="lp-header">
+      <div class="lp-header-inner">
+        <a href="/" class="lp-brand">FinalVerify</a>
+        <nav class="lp-nav">
+          <a href="/login">Log In</a>
+          <a href="/register" class="nav-cta">Create Account</a>
+        </nav>
+      </div>
+    </header>
+
+    <!-- ── Hero ── -->
+    <section class="lp-hero">
+      <div class="lp-container">
+        <h1>Verify Every Citation Before You File</h1>
+        <p>FinalVerify checks your case citations, statutes, and references against authoritative databases — and shows you exactly how each one was verified.</p>
+        <div class="lp-hero-buttons">
+          <a href="/register" class="lp-btn-primary">Try It Free</a>
+          <a href="#features" class="lp-btn-secondary">See How It Works</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Problem ── -->
+    <section id="problem" class="lp-section-alt">
+      <div class="lp-container">
+        <h2 class="lp-section-title">Bad Citations End Careers</h2>
+        <p class="lp-section-lead">One citation error can undermine an otherwise solid brief — or worse, draw sanctions from the court.</p>
+        <ul class="lp-problem-list">
+          <li class="lp-problem-item">Courts have sanctioned attorneys and dismissed briefs for citing non-existent cases.</li>
+          <li class="lp-problem-item">AI tools like ChatGPT hallucinate citations that look real but lead nowhere.</li>
+          <li class="lp-problem-item">Manual cite-checking is slow, tedious, and prone to human error.</li>
+          <li class="lp-problem-item">One bad citation can undermine an otherwise strong brief — and damage your reputation.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ── Features ── -->
+    <section id="features" class="lp-section">
+      <div class="lp-container">
+        <h2 class="lp-section-title">What FinalVerify Checks</h2>
+        <p class="lp-section-lead">Upload a document and get a full citation report in seconds — with provenance labels showing exactly how each citation was verified.</p>
+        <div class="lp-features-grid">
+
+          <!-- Case Law -->
+          <div class="lp-feature-card">
+            <div class="lp-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+            </div>
+            <h3>Case Law Verification</h3>
+            <p>Verify citations against 15 million+ cases from CourtListener's open database. Direct matches, ambiguity resolution, and smart fallback search.</p>
+          </div>
+
+          <!-- Statutes -->
+          <div class="lp-feature-card">
+            <div class="lp-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <polyline points="10 9 9 9 8 9"/>
+              </svg>
+            </div>
+            <h3>Statute Verification</h3>
+            <p>Verify Virginia Code and U.S. Code citations automatically. More states coming soon.</p>
+          </div>
+
+          <!-- Provenance -->
+          <div class="lp-feature-card">
+            <div class="lp-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+            </div>
+            <h3>Provenance Transparency</h3>
+            <p>See exactly how each citation was verified: direct match, heuristic, user-confirmed, or unresolved. No black boxes.</p>
+          </div>
+
+          <!-- AI Risk -->
+          <div class="lp-feature-card">
+            <div class="lp-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+            </div>
+            <h3>AI Risk Analysis</h3>
+            <p>Get an AI-powered risk memo highlighting potential citation issues. Runs with a local model or your own OpenAI key — your documents never leave your server.</p>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ── How It Works ── -->
+    <section id="how-it-works" class="lp-section-alt">
+      <div class="lp-container">
+        <h2 class="lp-section-title">How It Works</h2>
+        <p class="lp-section-lead">From upload to verified report in seconds — with no setup required.</p>
+        <ol class="lp-steps">
+          <li class="lp-step">
+            <h3>Upload your document</h3>
+            <p>DOCX, PDF, or paste text directly into the editor.</p>
+          </li>
+          <li class="lp-step">
+            <h3>Automatic verification</h3>
+            <p>Citations are extracted and checked against authoritative databases in seconds.</p>
+          </li>
+          <li class="lp-step">
+            <h3>Review with confidence</h3>
+            <p>Provenance labels show exactly what was verified and how — no hidden algorithms.</p>
+          </li>
+          <li class="lp-step">
+            <h3>Export your report</h3>
+            <p>Markdown, CSV, or printable HTML — ready for your file or opposing counsel.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ── Trust ── -->
+    <section class="lp-section">
+      <div class="lp-container">
+        <h2 class="lp-section-title">Built for lawyers who need to trust their tools</h2>
+        <ul class="lp-trust-list">
+          <li>Free to use — no credit card required</li>
+          <li>Your documents stay on your server — never sent to third parties for processing</li>
+          <li>Open verification sources — CourtListener, Virginia LIS, GovInfo</li>
+          <li>Every citation shows its verification provenance — no hidden algorithms</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ── Pricing ── -->
+    <section class="lp-section-alt">
+      <div class="lp-container">
+        <h2 class="lp-section-title">Simple Pricing</h2>
+        <p class="lp-section-lead">No tiers to navigate. No credit card required to get started.</p>
+        <div class="lp-pricing-grid">
+
+          <div class="lp-price-card featured">
+            <div class="lp-price-badge">Free Forever</div>
+            <h3>Free</h3>
+            <p class="lp-price-desc">Full access. Upload documents, verify citations, generate reports. Free forever.</p>
+            <a href="/register" class="lp-btn-primary">Get Started Free</a>
+          </div>
+
+          <div class="lp-price-card">
+            <div class="lp-price-badge" style="background:#f1f5f9;color:#64748b;">Coming Soon</div>
+            <h3>Professional</h3>
+            <p class="lp-price-desc">OpenAI-powered analysis, priority support, team accounts, Word add-in.</p>
+            <span class="lp-btn-disabled">Join Waitlist</span>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Final CTA ── -->
+    <section class="lp-cta">
+      <div class="lp-container">
+        <h2>Start verifying citations in 60 seconds</h2>
+        <a href="/register" class="lp-btn-primary">Create Free Account</a>
+        <a href="/login" class="lp-cta-sub">Already have an account? Log in &rarr;</a>
+      </div>
+    </section>
+
+    <!-- ── Footer ── -->
+    <footer class="lp-footer">
+      <div class="lp-container">
+        <div class="lp-footer-inner">
+          <span class="lp-footer-brand">FinalVerify — Citation verification for legal professionals</span>
+          <ul class="lp-footer-links">
+            <li><a href="#">About</a></li>
+            <li><a href="#">Contact</a></li>
+            <li><a href="#">Privacy Policy</a></li>
+          </ul>
+        </div>
+      </div>
+    </footer>
+
+  </body>
+</html>

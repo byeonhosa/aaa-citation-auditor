@@ -111,9 +111,7 @@ def _clean_users():
     """Delete all auth-test users and their runs before/after each test."""
     with SessionLocal() as db:
         # Remove runs whose user_id points to a test user first
-        test_users = db.scalars(
-            select(User).where(User.email.like(f"%{_EMAIL_DOMAIN}"))
-        ).all()
+        test_users = db.scalars(select(User).where(User.email.like(f"%{_EMAIL_DOMAIN}"))).all()
         test_ids = [u.id for u in test_users]
         if test_ids:
             db.execute(delete(AuditRun).where(AuditRun.user_id.in_(test_ids)))
@@ -121,9 +119,7 @@ def _clean_users():
         db.commit()
     yield
     with SessionLocal() as db:
-        test_users = db.scalars(
-            select(User).where(User.email.like(f"%{_EMAIL_DOMAIN}"))
-        ).all()
+        test_users = db.scalars(select(User).where(User.email.like(f"%{_EMAIL_DOMAIN}"))).all()
         test_ids = [u.id for u in test_users]
         if test_ids:
             db.execute(delete(AuditRun).where(AuditRun.user_id.in_(test_ids)))
@@ -209,14 +205,15 @@ def test_logout_clears_session_and_redirects():
     assert "/login" in resp.headers["location"]
 
 
-def test_unauthenticated_redirect_when_users_exist():
+def test_unauthenticated_user_sees_landing_page_when_users_exist():
+    """GET / without a session should return the landing page, not redirect to /login."""
     with _tc() as c:
         _register(c)
         # Use a fresh client (no session cookie) to simulate logged-out state
         with _tc() as c2:
             resp = c2.get("/", follow_redirects=False)
-    assert resp.status_code == 303
-    assert "/login" in resp.headers["location"]
+    assert resp.status_code == 200
+    assert b"Verify Every Citation Before You File" in resp.content
 
 
 def test_history_filters_by_user():
@@ -313,8 +310,6 @@ def test_audit_associates_run_with_user():
         user = get_user_by_email(db, _email("tester"))
         assert user is not None
         run = db.scalar(
-            select(AuditRun)
-            .where(AuditRun.user_id == user.id)
-            .order_by(AuditRun.id.desc())
+            select(AuditRun).where(AuditRun.user_id == user.id).order_by(AuditRun.id.desc())
         )
     assert run is not None
