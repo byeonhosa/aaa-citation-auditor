@@ -8,11 +8,29 @@ class Base(DeclarativeBase):
     """Base class for AAA database models."""
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255))
+    password_hash: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    audit_runs: Mapped[list["AuditRun"]] = relationship(back_populates="user")
+
+    __table_args__ = (Index("ix_users_email", "email", unique=True),)
+
+
 class AuditRun(Base):
     __tablename__ = "audit_runs"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    user: Mapped["User | None"] = relationship(back_populates="audit_runs")
 
     source_type: Mapped[str] = mapped_column(String(16))
     source_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

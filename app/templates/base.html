@@ -15,6 +15,10 @@
           <a href="/">Dashboard</a>
           <a href="/history">History</a>
           <a href="/settings">Settings</a>
+          {% if current_user %}
+          <span class="nav-user">{{ current_user.name or current_user.email }}</span>
+          <a href="/logout">Log out</a>
+          {% endif %}
         </nav>
       </div>
     </header>
