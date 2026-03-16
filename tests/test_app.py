@@ -150,6 +150,149 @@ def test_ai_memo_input_can_include_content_when_enabled() -> None:
     assert payload["warnings"] == ["Warning text"]
 
 
+def test_ai_memo_input_derived_with_verified_parent() -> None:
+    """DERIVED citation whose parent is VERIFIED counts as verified_parent, not risky."""
+    payload = build_ai_memo_input(
+        source_type="text",
+        source_name=None,
+        verification_summary={"VERIFIED": 1, "DERIVED": 1},
+        citations=[
+            {
+                "raw_text": "Smith v. Jones, 123 F.3d 456 (9th Cir. 1997)",
+                "citation_type": "FullCaseCitation",
+                "resolved_from": None,
+                "verification_status": "VERIFIED",
+                "verification_detail": "Matched",
+                "snippet": None,
+            },
+            {
+                "raw_text": "Id. at 460",
+                "citation_type": "IdCitation",
+                "resolved_from": "Smith v. Jones, 123 F.3d 456 (9th Cir. 1997)",
+                "verification_status": "DERIVED",
+                "verification_detail": "Derived",
+                "snippet": None,
+            },
+        ],
+        warnings=[],
+        include_content=False,
+    )
+
+    assert payload["derived_verified_parent_count"] == 1
+    assert payload["derived_risky_parent_count"] == 0
+
+
+def test_ai_memo_input_derived_with_risky_parent() -> None:
+    """DERIVED citation whose parent is NOT_FOUND counts as risky."""
+    payload = build_ai_memo_input(
+        source_type="text",
+        source_name=None,
+        verification_summary={"NOT_FOUND": 1, "DERIVED": 1},
+        citations=[
+            {
+                "raw_text": "Ghost v. Nobody, 999 F.3d 1 (9th Cir. 2000)",
+                "citation_type": "FullCaseCitation",
+                "resolved_from": None,
+                "verification_status": "NOT_FOUND",
+                "verification_detail": "Not found",
+                "snippet": None,
+            },
+            {
+                "raw_text": "Id. at 5",
+                "citation_type": "IdCitation",
+                "resolved_from": "Ghost v. Nobody, 999 F.3d 1 (9th Cir. 2000)",
+                "verification_status": "DERIVED",
+                "verification_detail": "Derived",
+                "snippet": None,
+            },
+        ],
+        warnings=[],
+        include_content=False,
+    )
+
+    assert payload["derived_verified_parent_count"] == 0
+    assert payload["derived_risky_parent_count"] == 1
+
+
+def test_ai_memo_input_derived_unknown_parent() -> None:
+    """DERIVED citation with no resolved_from (unknown parent) counts as risky."""
+    payload = build_ai_memo_input(
+        source_type="text",
+        source_name=None,
+        verification_summary={"DERIVED": 1},
+        citations=[
+            {
+                "raw_text": "Id.",
+                "citation_type": "IdCitation",
+                "resolved_from": None,
+                "verification_status": "DERIVED",
+                "verification_detail": "Derived",
+                "snippet": None,
+            },
+        ],
+        warnings=[],
+        include_content=False,
+    )
+
+    assert payload["derived_verified_parent_count"] == 0
+    assert payload["derived_risky_parent_count"] == 1
+
+
+def test_ai_memo_input_no_derived_citations() -> None:
+    """When there are no DERIVED citations both counts are zero."""
+    payload = build_ai_memo_input(
+        source_type="text",
+        source_name=None,
+        verification_summary={"VERIFIED": 2},
+        citations=[
+            {
+                "raw_text": "A v. B, 1 F.3d 1 (1st Cir. 2000)",
+                "citation_type": "FullCaseCitation",
+                "resolved_from": None,
+                "verification_status": "VERIFIED",
+                "verification_detail": "Matched",
+                "snippet": None,
+            },
+            {
+                "raw_text": "C v. D, 2 F.3d 2 (2d Cir. 2001)",
+                "citation_type": "FullCaseCitation",
+                "resolved_from": None,
+                "verification_status": "VERIFIED",
+                "verification_detail": "Matched",
+                "snippet": None,
+            },
+        ],
+        warnings=[],
+        include_content=False,
+    )
+
+    assert payload["derived_verified_parent_count"] == 0
+    assert payload["derived_risky_parent_count"] == 0
+
+
+def test_build_prompt_includes_derived_breakdown() -> None:
+    """_build_prompt should include DERIVED parent breakdown and effectively_verified count."""
+    from app.services.ai_risk_memo import _build_prompt
+
+    run_data = {
+        "source_type": "text",
+        "source_name": "test doc",
+        "verification_summary": {"VERIFIED": 3, "DERIVED": 2, "NOT_FOUND": 1},
+        "citation_count": 6,
+        "warnings_present": False,
+        "derived_verified_parent_count": 2,
+        "derived_risky_parent_count": 0,
+    }
+    prompt = _build_prompt(run_data)
+
+    assert "Derived citations with verified parent" in prompt
+    assert "Derived citations with unverified/risky parent" in prompt
+    assert "Effectively verified" in prompt
+    # effectively_verified = 3 VERIFIED + 2 derived_verified_parent = 5
+    assert "5" in prompt
+    assert "DERIVED citations" in prompt
+
+
 def test_post_audit_with_pasted_text_shows_results() -> None:
     response = client.post(
         "/audit",

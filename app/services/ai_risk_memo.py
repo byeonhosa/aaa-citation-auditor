@@ -76,11 +76,26 @@ def _build_prompt(run_data: dict[str, Any]) -> str:
     source_name = run_data.get("source_name") or "unnamed source"
     citation_count = run_data.get("citation_count", 0)
     warnings_present = run_data.get("warnings_present", False)
+    derived_verified_parent = run_data.get("derived_verified_parent_count", 0)
+    derived_risky_parent = run_data.get("derived_risky_parent_count", 0)
+
+    verified_count = summary.get("VERIFIED", 0)
+    effectively_verified = verified_count + derived_verified_parent
 
     lines = [
         "You are a legal citation audit assistant. Analyse the audit results below and produce "
         "a concise advisory risk memo. This is NOT general legal advice — it is specifically "
         "about citation verification accuracy for a legal document.",
+        "",
+        "IMPORTANT — DERIVED citations (e.g. 'Id.' references):",
+        "  DERIVED citations inherit their parent citation's trust level.",
+        "  A DERIVED citation whose parent is VERIFIED is equally trustworthy and should NOT "
+        "be flagged as a risk.",
+        "  Only flag DERIVED citations as a risk when their parent is NOT_FOUND, AMBIGUOUS, "
+        "or ERROR (i.e. the underlying citation could not be verified).",
+        "  Use the 'derived_verified_parent_count' and 'derived_risky_parent_count' fields "
+        "provided below to make this distinction — do not treat the raw DERIVED count in the "
+        "verification_summary as problematic on its own.",
         "",
         "Return a JSON object with exactly these keys:",
         "  risk_level: one of 'Low', 'Moderate', 'High', or 'Critical'",
@@ -93,6 +108,9 @@ def _build_prompt(run_data: dict[str, Any]) -> str:
         f"Source name: {source_name}",
         f"Total citations: {citation_count}",
         f"Verification summary: {json.dumps(summary, ensure_ascii=False)}",
+        f"Derived citations with verified parent (trustworthy): {derived_verified_parent}",
+        f"Derived citations with unverified/risky parent (flag as risk): {derived_risky_parent}",
+        f"Effectively verified (VERIFIED + derived with verified parent): {effectively_verified}",
         f"Warnings present: {warnings_present}",
     ]
 
@@ -118,7 +136,9 @@ def _call_openai_client(
                 "role": "system",
                 "content": (
                     "You produce concise advisory legal citation risk memos. "
-                    "Always return valid JSON with the exact keys requested."
+                    "Always return valid JSON with the exact keys requested. "
+                    "DERIVED citations (e.g. 'Id.') inherit their parent's trust level: "
+                    "only flag them as a risk when their parent is NOT_FOUND, AMBIGUOUS, or ERROR."
                 ),
             },
             {"role": "user", "content": prompt},

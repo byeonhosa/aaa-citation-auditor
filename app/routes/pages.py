@@ -200,6 +200,9 @@ def run_to_context(run: AuditRun) -> dict[str, Any]:
     }
 
 
+_RISKY_STATUSES = frozenset({"NOT_FOUND", "AMBIGUOUS", "ERROR"})
+
+
 def build_ai_memo_input(
     *,
     source_type: str,
@@ -209,12 +212,33 @@ def build_ai_memo_input(
     warnings: list[str],
     include_content: bool,
 ) -> dict[str, Any]:
+    # Build a parent-status lookup keyed by raw_text for DERIVED parent resolution.
+    parent_status: dict[str, str] = {
+        c["raw_text"]: c.get("verification_status") or ""
+        for c in citations
+        if c.get("raw_text") and c.get("verification_status") != "DERIVED"
+    }
+
+    derived_verified_parent = 0
+    derived_risky_parent = 0
+    for c in citations:
+        if c.get("verification_status") != "DERIVED":
+            continue
+        parent_raw = c.get("resolved_from")
+        pstatus = parent_status.get(parent_raw or "", "") if parent_raw else ""
+        if pstatus == "VERIFIED":
+            derived_verified_parent += 1
+        elif pstatus in _RISKY_STATUSES or not pstatus:
+            derived_risky_parent += 1
+
     payload: dict[str, Any] = {
         "source_type": source_type,
         "source_name": source_name,
         "verification_summary": verification_summary,
         "citation_count": len(citations),
         "warnings_present": bool(warnings),
+        "derived_verified_parent_count": derived_verified_parent,
+        "derived_risky_parent_count": derived_risky_parent,
     }
 
     if include_content:
