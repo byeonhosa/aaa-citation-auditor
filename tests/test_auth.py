@@ -252,6 +252,52 @@ def test_cross_user_run_access_denied():
     assert resp.status_code == 404
 
 
+def test_null_owner_run_hidden_from_history():
+    """Runs with user_id=NULL must not appear in any user's history list."""
+    with SessionLocal() as db:
+        null_run = AuditRun(user_id=None, source_type="text", citation_count=0)
+        db.add(null_run)
+        db.commit()
+        null_run_id = null_run.id
+
+    with _tc() as c:
+        _register(c, name="nulltest")
+        _login(c, name="nulltest")
+        resp = c.get("/history", follow_redirects=False)
+
+    assert resp.status_code == 200
+    assert f"Run #{null_run_id}".encode() not in resp.content
+
+    # Clean up the orphan run
+    with SessionLocal() as db:
+        from sqlalchemy import delete as sa_delete
+
+        db.execute(sa_delete(AuditRun).where(AuditRun.id == null_run_id))
+        db.commit()
+
+
+def test_null_owner_run_inaccessible_by_detail():
+    """Runs with user_id=NULL must return 404 on the detail page."""
+    with SessionLocal() as db:
+        null_run = AuditRun(user_id=None, source_type="text", citation_count=0)
+        db.add(null_run)
+        db.commit()
+        null_run_id = null_run.id
+
+    with _tc() as c:
+        _register(c, name="nulltest2")
+        _login(c, name="nulltest2")
+        resp = c.get(f"/history/{null_run_id}", follow_redirects=False)
+
+    assert resp.status_code == 404
+
+    with SessionLocal() as db:
+        from sqlalchemy import delete as sa_delete
+
+        db.execute(sa_delete(AuditRun).where(AuditRun.id == null_run_id))
+        db.commit()
+
+
 def test_audit_associates_run_with_user():
     with _tc() as c:
         _register(c)

@@ -3,7 +3,7 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from aaa_db.models import (
@@ -272,8 +272,7 @@ def save_memo_for_run(db: Session, run_id: int, memo_json: str) -> None:
 def list_audit_runs(db: Session, user_id: int | None = None) -> list[AuditRun]:
     stmt = select(AuditRun).order_by(AuditRun.created_at.desc(), AuditRun.id.desc())
     if user_id is not None:
-        # Show the user's own runs plus runs not yet associated with any user
-        stmt = stmt.where(or_(AuditRun.user_id == user_id, AuditRun.user_id.is_(None)))
+        stmt = stmt.where(AuditRun.user_id == user_id)
     return list(db.scalars(stmt).all())
 
 
@@ -284,8 +283,8 @@ def get_audit_run(
     run = db.scalar(stmt)
     if run is None:
         return None
-    # Ownership check: NULL-owner runs are accessible to any logged-in user
-    if user_id is not None and run.user_id is not None and run.user_id != user_id:
+    # Ownership check: runs with no owner are hidden from all users
+    if user_id is not None and run.user_id != user_id:
         return None
     return run
 
