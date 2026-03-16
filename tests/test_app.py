@@ -29,6 +29,32 @@ from app.services.verification import (
 client = TestClient(app)
 
 
+def _authed_dashboard_response():
+    """Return GET / response from an authenticated client, with cleanup."""
+    from sqlalchemy import delete
+
+    from aaa_db.models import User
+    from app.services.auth import create_user
+
+    _email = "dashauto_test@authtest.invalid"
+    with SessionLocal() as db:
+        user = create_user(db, email=_email, password="testpass123", name="DashAutoTest")
+        uid = user.id
+    try:
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post(
+                "/login",
+                data={"email": _email, "password": "testpass123"},
+                follow_redirects=True,
+            )
+            return c.get("/")
+    finally:
+        with SessionLocal() as db:
+            db.execute(delete(AuditRun).where(AuditRun.user_id == uid))
+            db.execute(delete(User).where(User.id == uid))
+            db.commit()
+
+
 class StubVerifiedVerifier:
     def verify(self, citation: CitationResult) -> VerificationResponse:
         return VerificationResponse(status="VERIFIED", detail=f"Matched {citation.raw_text}")
@@ -87,10 +113,32 @@ def test_html_routes() -> None:
 
 
 def test_clear_button_ui_presence() -> None:
-    response = client.get("/")
+    """Dashboard (shown to authenticated users) must contain the clear button."""
+    from app.services.auth import create_user
 
-    assert response.status_code == 200
-    assert 'id="clear-pasted-text"' in response.text
+    _test_email = "clearbtn_test@authtest.invalid"
+    with SessionLocal() as db:
+        user = create_user(db, email=_test_email, password="password123", name="ClearBtnTest")
+        user_id = user.id
+    try:
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post(
+                "/login",
+                data={"email": _test_email, "password": "password123"},
+                follow_redirects=True,
+            )
+            response = c.get("/")
+        assert response.status_code == 200
+        assert 'id="clear-pasted-text"' in response.text
+    finally:
+        from sqlalchemy import delete
+
+        with SessionLocal() as db:
+            from aaa_db.models import AuditRun, User
+
+            db.execute(delete(AuditRun).where(AuditRun.user_id == user_id))
+            db.execute(delete(User).where(User.id == user_id))
+            db.commit()
 
 
 def test_base_template_has_no_external_htmx_cdn_script() -> None:
@@ -3952,7 +4000,7 @@ def test_settings_clear_cache_still_renders_form() -> None:
 
 def test_dashboard_contains_loading_spinner_markup() -> None:
     """Dashboard page includes the spinner element and loading container."""
-    response = client.get("/")
+    response = _authed_dashboard_response()
 
     assert response.status_code == 200
     assert 'id="audit-loading"' in response.text
@@ -3962,7 +4010,7 @@ def test_dashboard_contains_loading_spinner_markup() -> None:
 
 def test_dashboard_loading_message_text_present() -> None:
     """Dashboard loading state shows a descriptive processing message."""
-    response = client.get("/")
+    response = _authed_dashboard_response()
 
     assert response.status_code == 200
     assert "verifying citations" in response.text.lower()
@@ -3970,7 +4018,7 @@ def test_dashboard_loading_message_text_present() -> None:
 
 def test_dashboard_audit_button_has_id_for_js() -> None:
     """Audit submit button has the id used by loading-state JavaScript."""
-    response = client.get("/")
+    response = _authed_dashboard_response()
 
     assert response.status_code == 200
     assert 'id="audit-submit-btn"' in response.text
@@ -3978,7 +4026,7 @@ def test_dashboard_audit_button_has_id_for_js() -> None:
 
 def test_dashboard_loading_js_disables_submit_on_submit() -> None:
     """Dashboard JS block contains the submit handler that disables the button."""
-    response = client.get("/")
+    response = _authed_dashboard_response()
 
     assert response.status_code == 200
     assert "auditForm.addEventListener" in response.text
@@ -3988,7 +4036,7 @@ def test_dashboard_loading_js_disables_submit_on_submit() -> None:
 
 def test_dashboard_loading_overlay_hidden_by_default() -> None:
     """The loading overlay starts hidden (no 'visible' class in initial HTML)."""
-    response = client.get("/")
+    response = _authed_dashboard_response()
 
     assert response.status_code == 200
     # The div is present but should NOT have the 'visible' class in the initial render
@@ -4047,9 +4095,10 @@ def test_base_template_references_favicon() -> None:
         assert "favicon.svg" in response.text, f"favicon.svg not found on {route}"
 
 
-def test_nav_links_present_on_all_pages() -> None:
-    """Dashboard, History, and Settings nav links appear on every page."""
-    for route in ["/", "/history", "/settings"]:
+def test_nav_links_present_on_app_pages() -> None:
+    """Dashboard, History, and Settings nav links appear on app pages (requires auth)."""
+    # / is the landing page for unauthenticated users; test app pages only
+    for route in ["/history", "/settings"]:
         response = client.get(route)
         assert response.status_code == 200
         assert 'href="/"' in response.text, f"Dashboard link missing on {route}"
@@ -4069,7 +4118,7 @@ def test_footer_present_on_all_pages() -> None:
     """A footer element is rendered on every page."""
     for route in ["/", "/history", "/settings"]:
         response = client.get(route)
-        assert "<footer>" in response.text, f"Footer missing on {route}"
+        assert "<footer" in response.text, f"Footer missing on {route}"
 
 
 def test_404_page_has_error_code() -> None:
@@ -4100,7 +4149,8 @@ def test_css_card_class_defined() -> None:
 
 def test_active_nav_js_in_base() -> None:
     """Base template includes JS to mark the active nav link."""
-    response = client.get("/")
+    # /login uses base.html and is always accessible
+    response = client.get("/login")
 
     assert response.status_code == 200
     assert "active" in response.text
@@ -4203,7 +4253,7 @@ def test_health_endpoint_degraded_when_db_fails(monkeypatch) -> None:
 
 def test_empty_submission_guard_js_in_dashboard() -> None:
     """Dashboard page includes client-side JS guard for empty submissions."""
-    response = client.get("/")
+    response = _authed_dashboard_response()
 
     assert response.status_code == 200
     assert "empty-submit-warning" in response.text

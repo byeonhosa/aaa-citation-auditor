@@ -205,14 +205,15 @@ def test_logout_clears_session_and_redirects():
     assert "/login" in resp.headers["location"]
 
 
-def test_unauthenticated_redirect_when_users_exist():
+def test_unauthenticated_user_sees_landing_page_when_users_exist():
+    """GET / without a session should return the landing page, not redirect to /login."""
     with _tc() as c:
         _register(c)
         # Use a fresh client (no session cookie) to simulate logged-out state
         with _tc() as c2:
             resp = c2.get("/", follow_redirects=False)
-    assert resp.status_code == 303
-    assert "/login" in resp.headers["location"]
+    assert resp.status_code == 200
+    assert b"Verify Every Citation Before You File" in resp.content
 
 
 def test_history_filters_by_user():

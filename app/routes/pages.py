@@ -322,6 +322,12 @@ def render_dashboard(
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request) -> HTMLResponse:
+    if request.session.get("user_id") is None:
+        return templates.TemplateResponse(
+            request=request,
+            name="landing.html",
+            context={"title": "FinalVerify — Citation Verification for Legal Professionals"},
+        )
     return render_dashboard(request)
 
 
