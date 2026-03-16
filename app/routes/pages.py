@@ -37,7 +37,6 @@ from app.services.audit import (
     extract_citations,
     resolve_id_citations,
 )
-from app.services.auth import users_exist
 from app.services.disambiguation import extract_case_name_from_text
 from app.services.exporters import (
     export_csv_for_run,
@@ -96,20 +95,6 @@ def _user_ctx(request: Request) -> dict | None:
         "email": request.session.get("user_email", ""),
         "name": request.session.get("user_name", ""),
     }
-
-
-def _auth_redirect(request: Request) -> RedirectResponse | None:
-    """Return a redirect to /login if auth is required but user not in session.
-
-    Returns None when auth is not enforced (no users in DB) or user is already
-    authenticated.
-    """
-    with db_session() as db:
-        if not users_exist(db):
-            return None
-    if _user_ctx(request) is None:
-        return RedirectResponse(url="/login", status_code=303)
-    return None
 
 
 @contextmanager
@@ -307,8 +292,6 @@ def render_dashboard(
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request) -> HTMLResponse:
-    if redirect := _auth_redirect(request):
-        return redirect
     return render_dashboard(request)
 
 
@@ -318,8 +301,6 @@ async def run_audit(
     pasted_text: str = PASTED_TEXT_FORM,
     uploaded_files: list[UploadFile] | None = UPLOADED_FILES_FORM,
 ) -> HTMLResponse:
-    if redirect := _auth_redirect(request):
-        return redirect
     current_user = _user_ctx(request)
     shared_warnings: list[str] = []
     result_groups: list[dict[str, Any]] = []
@@ -514,8 +495,6 @@ async def run_audit(
 
 @router.get("/history", response_class=HTMLResponse)
 def history(request: Request) -> HTMLResponse:
-    if redirect := _auth_redirect(request):
-        return redirect
     current_user = _user_ctx(request)
     with db_session() as db:
         runs = [
@@ -538,8 +517,6 @@ def history(request: Request) -> HTMLResponse:
 
 @router.get("/history/{run_id}", response_class=HTMLResponse)
 def history_detail(request: Request, run_id: int) -> HTMLResponse:
-    if redirect := _auth_redirect(request):
-        return redirect
     current_user = _user_ctx(request)
     with db_session() as db:
         run = get_audit_run(db, run_id, user_id=current_user["id"] if current_user else None)
@@ -589,8 +566,6 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
 @router.post("/history/{run_id}/regenerate-memo", response_class=HTMLResponse)
 def regenerate_memo(request: Request, run_id: int) -> RedirectResponse:
     """Explicitly regenerate the AI memo for a saved run and re-persist it."""
-    if redirect := _auth_redirect(request):
-        return redirect
     current_user = _user_ctx(request)
     with db_session() as db:
         run = get_audit_run(db, run_id, user_id=current_user["id"] if current_user else None)
@@ -623,8 +598,6 @@ def regenerate_memo(request: Request, run_id: int) -> RedirectResponse:
 
 @router.get("/history/{run_id}/export")
 def export_run(request: Request, run_id: int, format: str = Query(default="markdown")) -> Response:
-    if redirect := _auth_redirect(request):
-        return redirect
     current_user = _user_ctx(request)
     with db_session() as db:
         run = get_audit_run(db, run_id, user_id=current_user["id"] if current_user else None)
@@ -669,8 +642,6 @@ def resolve_citation_route(
     citation_id: int,
     cluster_id: int = Form(...),
 ) -> RedirectResponse:
-    if redirect := _auth_redirect(request):
-        return redirect
     current_user = _user_ctx(request)
     with db_session() as db:
         run_check = get_audit_run(db, run_id, user_id=current_user["id"] if current_user else None)
@@ -727,8 +698,6 @@ def resolve_citation_route(
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
-    if redirect := _auth_redirect(request):
-        return redirect
     with db_session() as db:
         ui = get_all_ui_settings(db)
         cache_stats = get_cache_stats(db)
@@ -788,8 +757,6 @@ _CHECKBOX_KEYS = {
 
 @router.post("/settings", response_class=HTMLResponse)
 async def save_settings(request: Request) -> RedirectResponse:
-    if redirect := _auth_redirect(request):
-        return redirect
     form = await request.form()
 
     with db_session() as db:
@@ -818,8 +785,6 @@ async def save_settings(request: Request) -> RedirectResponse:
 
 @router.post("/settings/clear-cache", response_class=HTMLResponse)
 def clear_cache(request: Request) -> HTMLResponse:
-    if redirect := _auth_redirect(request):
-        return redirect
     with db_session() as db:
         count = clear_resolution_cache(db)
         ui = get_all_ui_settings(db)
