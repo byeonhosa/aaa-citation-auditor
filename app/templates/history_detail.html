@@ -86,6 +86,13 @@
         <strong>Verification:</strong>
         <span class="verification-badge status-{{ (citation.verification_status or 'UNKNOWN') | lower }}">{{ citation.verification_status or "UNKNOWN" }}</span>
         {% if citation.provenance %}<span class="provenance-badge {{ citation.provenance.css_class }}" title="{{ citation.provenance.description }}">{{ citation.provenance.label }}</span>{% endif %}
+        {% if citation.resolution_method == "cache" and citation.cache_trust_tier == "user_submitted" %}
+        <form method="post" action="/cache/report-incorrect" style="display:inline">
+          <input type="hidden" name="normalized_cite" value="{{ citation.normalized_text or citation.raw_text }}">
+          <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+          <button type="submit" class="btn-link" onclick="return confirm('Clear this cached resolution and re-verify on next audit?')">Report incorrect</button>
+        </form>
+        {% endif %}
       </p>
       <p><strong>Detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
       {% if citation.verification_status == "NOT_FOUND" and citation.search_links %}

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -121,6 +122,13 @@ class CitationResolutionCache(Base):
     resolution_method: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    trust_tier: Mapped[str] = mapped_column(String(32), default="algorithmic")
+    cache_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_reverified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    disputed: Mapped[bool] = mapped_column(Boolean, default=False)
+    unique_user_count: Mapped[int] = mapped_column(Integer, default=1)
 
     __table_args__ = (
         Index("ix_citation_resolution_cache_normalized_cite", "normalized_cite", unique=True),

@@ -44,7 +44,13 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from aaa_db.session import SessionLocal  # noqa: E402
-from app.services.local_index import ImportStats, clear_index, import_from_csv  # noqa: E402
+from app.services.local_index import (  # noqa: E402
+    ImportStats,
+    IncrementalImportStats,
+    clear_index,
+    import_from_csv,
+    import_incremental,
+)
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -68,6 +74,20 @@ def _print_stats(stats: ImportStats) -> None:
     print(f"  Duplicates skipped : {stats.duplicates_skipped:>10,}")
     print(f"  Elapsed time       : {elapsed:>9.1f}s")
     print(f"  Throughput         : {rate:>9,.0f} citations/s")
+    print("─" * 50)
+    print()
+
+
+def _print_incremental_stats(stats: IncrementalImportStats) -> None:
+    elapsed = stats.elapsed_seconds()
+    print()
+    print("─" * 50)
+    print(f"  Total processed    : {stats.total_processed:>10,}")
+    print(f"  Inserted (new)     : {stats.inserted:>10,}")
+    print(f"  Corrected (updated): {stats.corrected:>10,}")
+    print(f"  Unchanged          : {stats.unchanged:>10,}")
+    print(f"  Cache upgraded     : {stats.upgraded_to_authoritative:>10,}")
+    print(f"  Elapsed time       : {elapsed:>9.1f}s")
     print("─" * 50)
     print()
 
@@ -97,6 +117,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         default=False,
         help="Clear the entire local citation index before importing",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["full", "update"],
+        default="full",
+        help=(
+            "'full' (default): upsert all rows from scratch. "
+            "'update': incremental update — tracks inserted/corrected/unchanged and "
+            "upgrades user_submitted cache entries confirmed by bulk data."
+        ),
     )
     parser.add_argument(
         "-v",
@@ -132,17 +162,33 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Importing from: {csvfile}")
         if clusters_file:
             print(f"Enriching with: {clusters_file}")
+        print(f"Mode: {args.mode}")
         print("This may take several minutes for large files…")
         print()
 
-        stats = import_from_csv(csvfile, db, case_lookup_filepath=clusters_file)
-        _print_stats(stats)
-
-        if stats.citations_indexed == 0:
-            print("WARNING: No citations were indexed. Check the file format and content.")
+        if args.mode == "update":
+            stats = import_incremental(csvfile, db, case_lookup_filepath=clusters_file)
+            _print_incremental_stats(stats)
+            if stats.total_processed == 0:
+                print("WARNING: No citations were processed. Check the file format and content.")
+            else:
+                print(
+                    f"Done. {stats.inserted:,} new, {stats.corrected:,} corrected, "
+                    f"{stats.unchanged:,} unchanged."
+                )
+                if stats.upgraded_to_authoritative:
+                    print(
+                        f"      {stats.upgraded_to_authoritative:,} cache entr(ies) upgraded to"
+                        " authoritative."
+                    )
         else:
-            n = stats.citations_indexed
-            print(f"Done. {n:,} citations are now available for fast local lookup.")
+            stats = import_from_csv(csvfile, db, case_lookup_filepath=clusters_file)
+            _print_stats(stats)
+            if stats.citations_indexed == 0:
+                print("WARNING: No citations were indexed. Check the file format and content.")
+            else:
+                n = stats.citations_indexed
+                print(f"Done. {n:,} citations are now available for fast local lookup.")
 
     except KeyboardInterrupt:
         print("\nImport interrupted by user.", file=sys.stderr)
