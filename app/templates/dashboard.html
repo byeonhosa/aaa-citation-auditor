@@ -123,8 +123,11 @@
 
   <p><strong>Citations found:</strong> {{ group.citation_count }}</p>
   {% if group.run_id %}
+  <p style="margin-bottom:0.4rem">
+    <a href="/history/{{ group.run_id }}/report" class="btn btn-primary" style="font-size:0.8125rem;padding:0.4rem 0.9rem;">&#8595; Download Verification Report (PDF)</a>
+  </p>
   <p class="export-links">
-    Export:
+    Also export as:
     <a href="/history/{{ group.run_id }}/export?format=markdown">Markdown</a>
     <a href="/history/{{ group.run_id }}/export?format=csv">CSV</a>
     <a href="/history/{{ group.run_id }}/export?format=html" target="_blank">Printable HTML</a>

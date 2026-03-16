@@ -103,9 +103,7 @@ def reverify_citation(
             if found_cluster_id == entry.selected_cluster_id:
                 entry.trust_tier = "authoritative"
                 entry.disputed = False
-                logger.info(
-                    "Reverification confirmed %r as authoritative", entry.normalized_cite
-                )
+                logger.info("Reverification confirmed %r as authoritative", entry.normalized_cite)
                 db.commit()
                 return "confirmed"
             else:
@@ -132,12 +130,8 @@ def reverify_citation(
         return "disputed"
 
     except (httpx.TimeoutException, httpx.ConnectError) as exc:
-        logger.warning(
-            "Reverification network error for %r: %s", entry.normalized_cite, exc
-        )
+        logger.warning("Reverification network error for %r: %s", entry.normalized_cite, exc)
         return "error"
     except Exception as exc:
-        logger.warning(
-            "Reverification unexpected error for %r: %s", entry.normalized_cite, exc
-        )
+        logger.warning("Reverification unexpected error for %r: %s", entry.normalized_cite, exc)
         return "error"

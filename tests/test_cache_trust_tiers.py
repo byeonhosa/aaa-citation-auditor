@@ -310,20 +310,35 @@ def test_clear_cache_entry_authoritative_protected(db):
 
 def test_cache_stats_include_tier_breakdown(db):
     _add_cache_entry(
-        db, "900 U.S. 1", cluster_id=9001,
-        resolution_method="direct", trust_tier="authoritative",
+        db,
+        "900 U.S. 1",
+        cluster_id=9001,
+        resolution_method="direct",
+        trust_tier="authoritative",
     )
     _add_cache_entry(
-        db, "901 F.2d 1", cluster_id=9002,
-        resolution_method="heuristic", trust_tier="algorithmic",
+        db,
+        "901 F.2d 1",
+        cluster_id=9002,
+        resolution_method="heuristic",
+        trust_tier="algorithmic",
     )
     _add_cache_entry(
-        db, "902 F.3d 1", cluster_id=9003, resolution_method="user",
-        trust_tier="user_submitted", cache_user_id=5,
+        db,
+        "902 F.3d 1",
+        cluster_id=9003,
+        resolution_method="user",
+        trust_tier="user_submitted",
+        cache_user_id=5,
     )
     _add_cache_entry(
-        db, "903 F.3d 2", cluster_id=9004, resolution_method="user",
-        trust_tier="user_submitted", cache_user_id=6, disputed=True,
+        db,
+        "903 F.3d 2",
+        cluster_id=9004,
+        resolution_method="user",
+        trust_tier="user_submitted",
+        cache_user_id=6,
+        disputed=True,
     )
 
     stats = get_cache_stats(db)
@@ -412,9 +427,11 @@ def test_smart_update_new_insertion(db, tmp_path):
 
 def test_smart_update_unchanged(db, tmp_path):
     # Pre-populate index
-    db.add(LocalCitationIndex(
-        normalized_cite="200 F.3d 100", cluster_id=2001, source="courtlistener_bulk"
-    ))
+    db.add(
+        LocalCitationIndex(
+            normalized_cite="200 F.3d 100", cluster_id=2001, source="courtlistener_bulk"
+        )
+    )
     db.commit()
 
     csv_file = _write_csv(
@@ -433,9 +450,11 @@ def test_smart_update_unchanged(db, tmp_path):
 
 def test_smart_update_correction(db, tmp_path):
     # Pre-populate with old cluster_id
-    db.add(LocalCitationIndex(
-        normalized_cite="300 F.3d 200", cluster_id=3001, source="courtlistener_bulk"
-    ))
+    db.add(
+        LocalCitationIndex(
+            normalized_cite="300 F.3d 200", cluster_id=3001, source="courtlistener_bulk"
+        )
+    )
     db.commit()
 
     # CSV has updated cluster_id

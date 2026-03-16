@@ -96,7 +96,7 @@ def _detect_format(header: list[str]) -> str:
 
 # ── PostgreSQL / JSON array parsing ───────────────────────────────────────────
 
-_PG_ARRAY_RE = re.compile(r'^\{(.*)\}$', re.DOTALL)
+_PG_ARRAY_RE = re.compile(r"^\{(.*)\}$", re.DOTALL)
 
 
 def _parse_citation_array(value: str) -> list[str]:
@@ -605,9 +605,7 @@ class LocalIndexLookup:
         The returned dict has keys: cluster_id, case_name, court_id, date_filed.
         """
         row = self._db.scalar(
-            select(LocalCitationIndex).where(
-                LocalCitationIndex.normalized_cite == normalized_cite
-            )
+            select(LocalCitationIndex).where(LocalCitationIndex.normalized_cite == normalized_cite)
         )
         if row is None:
             return None
@@ -626,9 +624,7 @@ class LocalIndexLookup:
         if not cites:
             return {}
         rows = self._db.scalars(
-            select(LocalCitationIndex).where(
-                LocalCitationIndex.normalized_cite.in_(cites)
-            )
+            select(LocalCitationIndex).where(LocalCitationIndex.normalized_cite.in_(cites))
         ).all()
         return {
             row.normalized_cite: {

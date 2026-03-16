@@ -48,6 +48,7 @@ from app.services.exporters import (
 from app.services.local_index import LocalIndexLookup
 from app.services.local_index import get_stats as get_local_index_stats
 from app.services.provenance import PROVENANCE_HELP, get_provenance, get_provenance_breakdown
+from app.services.report_generator import generate_pdf_report
 from app.services.search_links import build_search_links
 from app.services.settings_service import (
     _SENSITIVE_KEYS,
@@ -680,6 +681,33 @@ def export_run(request: Request, run_id: int, format: str = Query(default="markd
         )
 
     raise HTTPException(status_code=400, detail="Unsupported export format")
+
+
+@router.get("/history/{run_id}/report")
+def download_report(request: Request, run_id: int) -> Response:
+    """Generate and return a professional Citation Verification Report as PDF."""
+    current_user = _user_ctx(request)
+    user_id = current_user["id"] if current_user else None
+    with db_session() as db:
+        run = get_audit_run(db, run_id, user_id=user_id)
+        if run is None:
+            _record_event_safely(event_type="missing_run_404")
+            raise HTTPException(status_code=404, detail="Audit run not found")
+        user_run_number = get_user_run_number(db, run_id, user_id)
+
+    _record_event_safely(event_type="report_downloaded", source_type=run.source_type)
+
+    pdf_bytes = generate_pdf_report(
+        run,
+        user_run_number=user_run_number,
+        user_email=current_user["email"] if current_user else "",
+    )
+    filename = f"citation-verification-report-{run_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/history/{run_id}/citations/{citation_id}/resolve")
