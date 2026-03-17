@@ -104,6 +104,25 @@ def _build_prompt(run_data: dict[str, Any]) -> str:
         ]
 
     lines = intro + [
+        "IMPORTANT — NOT_FOUND citations:",
+        "  NOT_FOUND does NOT mean a citation is fabricated or invalid.",
+        "  It means FinalVerify's open databases (CourtListener, Virginia Code, U.S. Code) "
+        "could not independently verify it.",
+        "  Many legitimate citations use proprietary reporter systems (LEXIS, Westlaw, ALR, Am. "
+        "Jur.) that are not indexed in open databases and will always return NOT_FOUND.",
+        "  Do NOT recommend challenging the validity of a citation solely because it is NOT_FOUND.",
+        "  DO recommend: manual verification via the provided search links, Westlaw, Lexis, or "
+        "the court's PACER system before drawing any conclusions.",
+        "  For opposing_review mode: before suggesting any challenge, instruct the attorney to "
+        "independently verify through Westlaw, Lexis, or PACER. Only if the citation cannot be "
+        "found through any source should they consider requesting clarification from opposing "
+        "counsel.",
+        "",
+        "IMPORTANT — AMBIGUOUS citations:",
+        "  AMBIGUOUS means the citation matched multiple possible cases in the database.",
+        "  Review the document context to determine which case was intended before drawing "
+        "any conclusions. Do not treat ambiguity as an error.",
+        "",
         "IMPORTANT — DERIVED citations (e.g. 'Id.' references):",
         "  DERIVED citations inherit their parent citation's trust level.",
         "  A DERIVED citation whose parent is VERIFIED is equally trustworthy and should NOT "
@@ -145,7 +164,12 @@ _BASE_SYSTEM_CONTENT = (
     "You produce concise advisory legal citation risk memos. "
     "Always return valid JSON with the exact keys requested. "
     "DERIVED citations (e.g. 'Id.') inherit their parent's trust level: "
-    "only flag them as a risk when their parent is NOT_FOUND, AMBIGUOUS, or ERROR."
+    "only flag them as a risk when their parent is NOT_FOUND, AMBIGUOUS, or ERROR. "
+    "IMPORTANT: NOT_FOUND does not mean a citation is fabricated or invalid. "
+    "It means FinalVerify's open databases could not verify it. "
+    "Many legitimate citations use proprietary reporter systems "
+    "(LEXIS, Westlaw) not indexed in open databases. "
+    "Always recommend manual verification before concluding a citation is problematic."
 )
 
 _OPPOSING_SYSTEM_SUFFIX = (

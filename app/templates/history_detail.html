@@ -115,12 +115,15 @@
         {% endif %}
       {% endif %}
       {% if citation.verification_status == "NOT_FOUND" and citation.search_links %}
-      <p class="help-verify-links">
-        <strong>{% if audit_mode == 'opposing_review' %}Look up:{% else %}Help me verify:{% endif %}</strong>
-        <a href="{{ citation.search_links.courtlistener }}" target="_blank" rel="noopener noreferrer">Search CourtListener</a>
-        |
-        <a href="{{ citation.search_links.google_scholar }}" target="_blank" rel="noopener noreferrer">Search Google Scholar</a>
-      </p>
+      <div class="verify-action-box">
+        <p class="verify-action-title">Verify This Citation</p>
+        <p class="verify-action-desc">This citation could not be verified in our open databases. It may use a proprietary reporter (LEXIS/Westlaw) or may not yet be indexed. Use these links to verify manually:</p>
+        <ul class="verify-action-links">
+          <li><a href="{{ citation.search_links.courtlistener }}" target="_blank" rel="noopener noreferrer">Search CourtListener</a></li>
+          <li><a href="{{ citation.search_links.google_scholar }}" target="_blank" rel="noopener noreferrer">Search Google Scholar</a></li>
+          <li><a href="https://www.pacer.gov/" target="_blank" rel="noopener noreferrer">Search PACER (federal court records)</a></li>
+        </ul>
+      </div>
       {% endif %}
       <p class="snippet"><strong>Snippet:</strong> {{ citation.snippet or "(snippet unavailable)" }}</p>
       {% if citation.verification_status == "AMBIGUOUS" and citation.candidate_metadata %}

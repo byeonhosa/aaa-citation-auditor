@@ -627,6 +627,41 @@ label:has(input[type="checkbox"]) {
   text-decoration: none;
 }
 
+/* ── Verify action box (NOT_FOUND prominent) ───────────────────────────── */
+.verify-action-box {
+  background: var(--surface-1, #f8f9fa);
+  border: 1px solid var(--warning, #f59e0b);
+  border-left: 4px solid var(--warning, #f59e0b);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 0;
+}
+.verify-action-title {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  margin: 0 0 0.25rem 0;
+}
+.verify-action-desc {
+  font-size: 0.875rem;
+  color: var(--text-muted, #666);
+  margin: 0 0 0.5rem 0;
+}
+.verify-action-links {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.875rem;
+}
+.verify-action-links li {
+  margin-bottom: 0.2rem;
+}
+.verify-action-links a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.verify-action-links a:hover {
+  text-decoration: none;
+}
+
 /* ── Disambiguate hint ──────────────────────────────────────────────────── */
 .disambiguate-hint {
   background: var(--amber-bg);

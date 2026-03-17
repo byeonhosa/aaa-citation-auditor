@@ -5589,6 +5589,50 @@ def test_ai_memo_prompt_changes_for_opposing_review() -> None:
     assert "vulnerabilit" in prompt.lower()
 
 
+# ── NOT_FOUND guidance and verify-action-box tests ──────────────────────────
+
+
+def test_ai_memo_prompt_contains_not_found_disclaimer() -> None:
+    """_build_prompt must include instructions that NOT_FOUND != fabricated/invalid."""
+    from app.services.ai_risk_memo import _build_prompt
+
+    run_data = {
+        "source_type": "text",
+        "source_name": "test doc",
+        "verification_summary": {"NOT_FOUND": 3},
+        "citation_count": 3,
+        "warnings_present": False,
+        "derived_verified_parent_count": 0,
+        "derived_risky_parent_count": 0,
+    }
+    prompt = _build_prompt(run_data)
+
+    assert "NOT_FOUND does NOT mean" in prompt
+    assert "fabricated or invalid" in prompt
+    assert "PACER" in prompt
+
+
+def test_opposing_review_prompt_does_not_say_challenge_validity() -> None:
+    """_build_prompt for opposing_review must not recommend challenging validity of NOT_FOUND."""
+    from app.services.ai_risk_memo import _build_prompt
+
+    run_data = {
+        "source_type": "text",
+        "source_name": "opposing doc",
+        "audit_mode": "opposing_review",
+        "verification_summary": {"NOT_FOUND": 2},
+        "citation_count": 2,
+        "warnings_present": False,
+        "derived_verified_parent_count": 0,
+        "derived_risky_parent_count": 0,
+    }
+    prompt = _build_prompt(run_data)
+    assert "OPPOSING COUNSEL" in prompt or "opposing" in prompt.lower()
+    assert "vulnerabilit" in prompt.lower()
+    assert "challenge the validity" not in prompt.lower()
+    assert "NOT_FOUND does NOT mean" in prompt
+
+
 def test_ai_memo_prompt_unchanged_for_self_review() -> None:
     """_build_prompt uses standard framing when audit_mode=self_review."""
     from app.services.ai_risk_memo import _build_prompt
@@ -5695,3 +5739,45 @@ def test_backward_compat_audit_mode_defaults_to_self_review() -> None:
     # (getattr fallback covers this case)
     ctx = run_to_context(run)
     assert ctx["audit_mode"] == "self_review"
+
+
+def test_not_found_citation_has_prominent_verification_box(monkeypatch) -> None:
+    """Dashboard must render verify-action-box for NOT_FOUND citations."""
+
+    def fake_verify(citations, **kwargs):  # noqa: ANN001, ANN003
+        for c in citations:
+            c.verification_status = "NOT_FOUND"
+            c.verification_detail = "No match found."
+        return citations
+
+    monkeypatch.setattr("app.routes.pages.verify_citations", fake_verify)
+
+    response = client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."},
+    )
+
+    assert response.status_code == 200
+    assert "verify-action-box" in response.text
+    assert "Verify This Citation" in response.text
+    assert "could not be verified in our open databases" in response.text
+
+
+def test_pacer_link_included_for_not_found(monkeypatch) -> None:
+    """Dashboard must include a PACER link for NOT_FOUND citations."""
+
+    def fake_verify(citations, **kwargs):  # noqa: ANN001, ANN003
+        for c in citations:
+            c.verification_status = "NOT_FOUND"
+            c.verification_detail = "No match found."
+        return citations
+
+    monkeypatch.setattr("app.routes.pages.verify_citations", fake_verify)
+
+    response = client.post(
+        "/audit",
+        data={"pasted_text": "Brown v. Board of Educ., 347 U.S. 483 (1954)."},
+    )
+
+    assert response.status_code == 200
+    assert "pacer.gov" in response.text

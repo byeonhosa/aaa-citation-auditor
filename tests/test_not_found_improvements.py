@@ -391,25 +391,25 @@ class TestDashboardTemplateSearchLinks:
         assert "help-verify-links" in response.text or response.status_code == 200
 
     def test_history_detail_template_has_help_links_class(self) -> None:
-        """history_detail.html template contains the help-verify-links CSS class."""
+        """history_detail.html template contains the verify-action-box for NOT_FOUND citations."""
         import pathlib
 
         template_path = (
             pathlib.Path(__file__).parent.parent / "app" / "templates" / "history_detail.html"
         )
         content = template_path.read_text(encoding="utf-8")
-        assert "help-verify-links" in content
+        assert "verify-action-box" in content
         assert "search_links.courtlistener" in content
         assert "search_links.google_scholar" in content
 
     def test_dashboard_template_has_help_links_class(self) -> None:
-        """dashboard.html template contains the help-verify-links CSS class."""
+        """dashboard.html template contains the verify-action-box for NOT_FOUND citations."""
         import pathlib
 
         template_path = (
             pathlib.Path(__file__).parent.parent / "app" / "templates" / "dashboard.html"
         )
         content = template_path.read_text(encoding="utf-8")
-        assert "help-verify-links" in content
+        assert "verify-action-box" in content
         assert "search_links.courtlistener" in content
         assert "search_links.google_scholar" in content
