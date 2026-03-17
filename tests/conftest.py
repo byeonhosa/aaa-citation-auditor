@@ -46,8 +46,11 @@ def clean_db() -> None:
         Base,
         CitationResolutionCache,
         CitationResultRecord,
+        ContactMessage,
         StatuteVerificationCache,
         TelemetryEvent,
+        User,
+        WaitlistEntry,
     )
 
     Base.metadata.create_all(bind=_TEST_ENGINE)
@@ -58,6 +61,9 @@ def clean_db() -> None:
         db.query(CitationResolutionCache).delete()
         db.query(StatuteVerificationCache).delete()
         db.query(AppSettings).delete()
+        db.query(ContactMessage).delete()
+        db.query(WaitlistEntry).delete()
+        db.query(User).delete()
         db.commit()
 
 

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="margin-bottom:1.25rem">
+  <a href="/admin/messages" style="color:#6b7280;font-size:0.875rem">&larr; Back to Messages</a>
+</div>
+
+<h1 style="margin-bottom:0.25rem">{{ msg.subject }}</h1>
+<p style="color:#6b7280;font-size:0.875rem;margin-bottom:1.5rem">{{ msg.created_at.strftime("%Y-%m-%d %H:%M UTC") }}</p>
+
+<dl style="margin:0 0 1.5rem;display:grid;grid-template-columns:max-content 1fr;gap:0.4rem 1rem">
+  <dt style="color:#6b7280;font-size:0.875rem;font-weight:600">Name</dt>
+  <dd style="margin:0">{{ msg.name }}</dd>
+  {% if msg.organization %}
+  <dt style="color:#6b7280;font-size:0.875rem;font-weight:600">Organization</dt>
+  <dd style="margin:0">{{ msg.organization }}</dd>
+  {% endif %}
+  <dt style="color:#6b7280;font-size:0.875rem;font-weight:600">Email</dt>
+  <dd style="margin:0"><a href="mailto:{{ msg.email }}">{{ msg.email }}</a></dd>
+</dl>
+
+<div style="background:#f8f9fa;border:1px solid #e5e7eb;border-radius:8px;padding:1.25rem 1.5rem;white-space:pre-wrap;font-size:0.9375rem;line-height:1.65;color:#1a2332">{{ msg.message }}</div>
+
+<div style="margin-top:1.5rem">
+  <a href="mailto:{{ msg.email }}?subject=Re: {{ msg.subject | urlencode }}" class="btn btn-secondary">Reply by Email</a>
+</div>
+{% endblock %}

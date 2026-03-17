@@ -25,8 +25,15 @@ logger = logging.getLogger(__name__)
 # Paths that never require authentication.
 _PUBLIC_PATHS = frozenset(
     {
-        "/", "/login", "/register", "/logout", "/api/health",
-        "/waitlist", "/about", "/contact", "/privacy",
+        "/",
+        "/login",
+        "/register",
+        "/logout",
+        "/api/health",
+        "/waitlist",
+        "/about",
+        "/contact",
+        "/privacy",
     }
 )
 

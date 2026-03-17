@@ -5458,7 +5458,10 @@ def test_audit_mode_persisted_opposing_review() -> None:
             c.post("/login", data={"email": email, "password": "pw123"}, follow_redirects=True)
             c.post(
                 "/audit",
-                data={"pasted_text": "See Brown v. Board, 347 U.S. 483 (1954).", "audit_mode": "opposing_review"},  # noqa: E501
+                data={
+                    "pasted_text": "See Brown v. Board, 347 U.S. 483 (1954).",
+                    "audit_mode": "opposing_review",
+                },  # noqa: E501
                 follow_redirects=True,
             )
 
@@ -5499,7 +5502,10 @@ def test_opposing_review_result_framing() -> None:
             c.post("/login", data={"email": email, "password": "pw123"}, follow_redirects=True)
             resp = c.post(
                 "/audit",
-                data={"pasted_text": "See Brown v. Board, 347 U.S. 483 (1954).", "audit_mode": "opposing_review"},  # noqa: E501
+                data={
+                    "pasted_text": "See Brown v. Board, 347 U.S. 483 (1954).",
+                    "audit_mode": "opposing_review",
+                },  # noqa: E501
                 follow_redirects=True,
             )
         assert resp.status_code == 200
@@ -5783,3 +5789,178 @@ def test_pacer_link_included_for_not_found(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert "pacer.gov" in response.text
+
+
+# ── Contact / admin / notification tests ────────────────────────────────────
+
+
+def test_contact_form_saves_to_db() -> None:
+    """POST /contact saves a ContactMessage row even when SMTP env vars are absent."""
+    from aaa_db.models import ContactMessage
+
+    with SessionLocal() as db:
+        before = db.query(ContactMessage).count()
+
+    response = client.post(
+        "/contact",
+        data={
+            "name": "Jane Doe",
+            "organization": "Acme Law",
+            "email": "jane@example.com",
+            "subject": "Test inquiry",
+            "message": "Hello from the test suite.",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+    with SessionLocal() as db:
+        after = db.query(ContactMessage).count()
+    assert after == before + 1
+
+
+def test_contact_form_rejects_missing_fields() -> None:
+    """POST /contact returns 4xx when required fields are absent."""
+    response = client.post(
+        "/contact",
+        data={
+            "name": "",
+            "email": "jane@example.com",
+            "subject": "Hi",
+            "message": "Missing name field.",
+        },
+    )
+    # FastAPI may return 422 (validation before handler) or our handler returns 400.
+    assert response.status_code >= 400
+
+
+def test_admin_messages_returns_404_for_non_admin() -> None:
+    """GET /admin/messages is 404 when current_user is not user_id==1."""
+    # After clean_db, no users exist - auth middleware skips enforcement.
+    # The route still returns 404 because current_user is None (id != 1).
+    response = client.get("/admin/messages")
+    assert response.status_code == 404
+
+
+def test_admin_messages_shows_messages_for_admin() -> None:
+    """GET /admin/messages lists contact messages for user_id==1."""
+    from aaa_db.models import ContactMessage, User
+    from app.services.auth import hash_password
+
+    # Ensure user_id==1 exists and log in as them.
+    with SessionLocal() as db:
+        user1 = db.get(User, 1)
+        if user1 is None:
+            user1 = User(
+                id=1,
+                email="admin@example.com",
+                password_hash=hash_password("adminpass"),
+                name="Admin",
+            )
+            db.add(user1)
+            db.commit()
+            db.refresh(user1)
+        admin_email = user1.email
+
+    admin_client = TestClient(app)
+    login_resp = admin_client.post(
+        "/login",
+        data={"email": admin_email, "password": "adminpass"},
+        follow_redirects=False,
+    )
+    # Accept either 303 redirect (success) or 200 (already logged in flow)
+    assert login_resp.status_code in (200, 303)
+
+    # Seed a contact message
+    with SessionLocal() as db:
+        db.add(
+            ContactMessage(
+                name="Tester",
+                email="tester@example.com",
+                subject="Admin test",
+                message="Visible in admin view.",
+            )
+        )
+        db.commit()
+
+    response = admin_client.get("/admin/messages")
+    assert response.status_code == 200
+    assert "Admin test" in response.text
+
+
+def test_admin_message_detail_marks_as_read() -> None:
+    """GET /admin/messages/{id} marks the message as is_read=True."""
+    from aaa_db.models import ContactMessage, User
+    from app.services.auth import hash_password
+
+    with SessionLocal() as db:
+        user1 = db.get(User, 1)
+        if user1 is None:
+            user1 = User(
+                id=1,
+                email="admin@example.com",
+                password_hash=hash_password("adminpass"),
+                name="Admin",
+            )
+            db.add(user1)
+            db.commit()
+            db.refresh(user1)
+        admin_email = user1.email
+
+        msg = ContactMessage(
+            name="Mark Me",
+            email="mark@example.com",
+            subject="Read test",
+            message="Should be marked read.",
+        )
+        db.add(msg)
+        db.commit()
+        db.refresh(msg)
+        msg_id = msg.id
+
+    admin_client = TestClient(app)
+    admin_client.post(
+        "/login",
+        data={"email": admin_email, "password": "adminpass"},
+        follow_redirects=False,
+    )
+
+    response = admin_client.get(f"/admin/messages/{msg_id}")
+    assert response.status_code == 200
+
+    with SessionLocal() as db:
+        updated = db.get(ContactMessage, msg_id)
+        assert updated.is_read is True
+
+
+def test_notification_skipped_when_env_vars_absent(monkeypatch) -> None:
+    """send_contact_notification and send_waitlist_notification do nothing when env vars absent."""
+    monkeypatch.delenv("NOTIFY_EMAIL", raising=False)
+    monkeypatch.delenv("NOTIFY_EMAIL_APP_PASSWORD", raising=False)
+
+    from app.services.notifications import send_contact_notification, send_waitlist_notification
+
+    # Should complete without raising
+    send_contact_notification("A", "a@b.com", "S", "M")
+    send_waitlist_notification("a@b.com")
+
+
+def test_waitlist_saves_email_to_db() -> None:
+    """POST /waitlist saves the email to the waitlist_entries table."""
+    from aaa_db.models import WaitlistEntry
+
+    test_email = "waitlist_test_unique_xyz@example.com"
+
+    with SessionLocal() as db:
+        existing = db.query(WaitlistEntry).filter_by(email=test_email).first()
+        if existing:
+            db.delete(existing)
+            db.commit()
+
+    response = client.post("/waitlist", data={"email": test_email})
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+    with SessionLocal() as db:
+        entry = db.query(WaitlistEntry).filter_by(email=test_email).first()
+        assert entry is not None

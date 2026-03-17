@@ -15,6 +15,10 @@
           <a href="/">Dashboard</a>
           <a href="/history">History</a>
           <a href="/settings">Settings</a>
+          {% if current_user and current_user.id == 1 %}
+          {% set _unread = admin_unread_count(current_user) %}
+          <a href="/admin/messages">Messages{% if _unread %} ({{ _unread }}){% endif %}</a>
+          {% endif %}
           {% if current_user %}
           <span class="nav-user" title="{{ current_user.name or current_user.email }}">{{ current_user.name or current_user.email }}</span>
           <a href="/logout">Log out</a>

@@ -4,8 +4,23 @@ from contextlib import contextmanager
 from time import perf_counter
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.templating import Jinja2Templates
 
 from aaa_db.models import AuditRun
@@ -64,6 +79,22 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 logger = logging.getLogger(__name__)
+
+
+def _admin_unread_count(current_user: dict | None) -> int:
+    """Jinja2 global: return unread ContactMessage count for user_id==1, else 0."""
+    if not current_user or current_user.get("id") != 1:
+        return 0
+    try:
+        from aaa_db.models import ContactMessage
+
+        with db_session() as db:
+            return db.query(ContactMessage).filter_by(is_read=False).count()
+    except Exception:
+        return 0
+
+
+templates.env.globals["admin_unread_count"] = _admin_unread_count
 
 _GOOD_STATUSES = frozenset({"VERIFIED", "DERIVED", "STATUTE_DETECTED", "STATUTE_VERIFIED"})
 
@@ -920,12 +951,13 @@ def clear_cache(request: Request) -> HTMLResponse:
 @router.post("/waitlist", response_class=HTMLResponse)
 async def join_waitlist(
     request: Request,
+    background_tasks: BackgroundTasks,
     email: str = Form(...),
-) -> HTMLResponse:
-    from fastapi.responses import JSONResponse
+) -> JSONResponse:
     from sqlalchemy.exc import IntegrityError
 
     from aaa_db.models import WaitlistEntry
+    from app.services.notifications import send_waitlist_notification
 
     email = email.strip().lower()
     if not email or "@" not in email:
@@ -935,10 +967,118 @@ async def join_waitlist(
         with db_session() as db:
             db.add(WaitlistEntry(email=email))
             db.commit()
+        background_tasks.add_task(send_waitlist_notification, email)
     except IntegrityError:
         logger.debug("Waitlist: duplicate email ignored: %s", email)
 
     return JSONResponse({"ok": True})
+
+
+@router.post("/contact")
+async def submit_contact(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    name: str = Form(...),
+    organization: str = Form(default=""),
+    email: str = Form(...),
+    subject: str = Form(...),
+    message: str = Form(...),
+) -> JSONResponse:
+    from aaa_db.models import ContactMessage
+    from app.services.notifications import send_contact_notification
+
+    name = name.strip()
+    email = email.strip()
+    subject = subject.strip()
+    message = message.strip()
+    organization = organization.strip()
+
+    if not all([name, email, subject, message]) or "@" not in email:
+        return JSONResponse({"ok": False, "error": "All fields are required."}, status_code=400)
+
+    with db_session() as db:
+        db.add(
+            ContactMessage(
+                name=name,
+                organization=organization or None,
+                email=email,
+                subject=subject,
+                message=message,
+            )
+        )
+        db.commit()
+
+    background_tasks.add_task(
+        send_contact_notification, name, email, subject, message, organization
+    )
+    return JSONResponse({"ok": True})
+
+
+@router.get("/admin/messages", response_class=HTMLResponse)
+def admin_messages(request: Request) -> HTMLResponse:
+    current_user = _user_ctx(request)
+    if not current_user or current_user["id"] != 1:
+        raise HTTPException(status_code=404)
+
+    from aaa_db.models import ContactMessage
+
+    with db_session() as db:
+        rows = db.query(ContactMessage).order_by(ContactMessage.created_at.desc()).all()
+        msgs = [
+            {
+                "id": m.id,
+                "name": m.name,
+                "organization": m.organization,
+                "email": m.email,
+                "subject": m.subject,
+                "message_preview": m.message[:120],
+                "is_read": m.is_read,
+                "created_at": m.created_at,
+            }
+            for m in rows
+        ]
+
+    return templates.TemplateResponse(
+        request=request,
+        name="admin_messages.html",
+        context={"title": "Messages", "messages": msgs, "current_user": current_user},
+    )
+
+
+@router.get("/admin/messages/{msg_id}", response_class=HTMLResponse)
+def admin_message_detail(request: Request, msg_id: int) -> HTMLResponse:
+    current_user = _user_ctx(request)
+    if not current_user or current_user["id"] != 1:
+        raise HTTPException(status_code=404)
+
+    from aaa_db.models import ContactMessage
+
+    with db_session() as db:
+        msg = db.get(ContactMessage, msg_id)
+        if msg is None:
+            raise HTTPException(status_code=404)
+        msg.is_read = True
+        db.commit()
+        msg_ctx = {
+            "id": msg.id,
+            "name": msg.name,
+            "organization": msg.organization,
+            "email": msg.email,
+            "subject": msg.subject,
+            "message": msg.message,
+            "is_read": True,
+            "created_at": msg.created_at,
+        }
+
+    return templates.TemplateResponse(
+        request=request,
+        name="admin_message_detail.html",
+        context={
+            "title": f"Message from {msg_ctx['name']}",
+            "msg": msg_ctx,
+            "current_user": current_user,
+        },
+    )
 
 
 @router.get("/about", response_class=HTMLResponse)

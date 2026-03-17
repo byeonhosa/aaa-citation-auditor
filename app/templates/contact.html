@@ -70,17 +70,10 @@
       }
 
       .lp-content {
-        max-width: 760px;
+        max-width: 680px;
         margin: 0 auto;
         padding: 56px 1.5rem 72px;
       }
-      .lp-content h2 {
-        color: #1a2332;
-        font-size: 1.35rem;
-        font-weight: 700;
-        margin: 2rem 0 0.6rem;
-      }
-      .lp-content h2:first-child { margin-top: 0; }
       .lp-content p {
         color: #374151;
         font-size: 1rem;
@@ -88,34 +81,67 @@
         margin: 0 0 1rem;
       }
 
-      .lp-contact-card {
-        background: #f8f9fa;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        padding: 28px 32px;
-        margin-top: 1.5rem;
+      .contact-form { margin-top: 1.5rem; }
+      .form-row { margin-bottom: 1.1rem; }
+      .form-row label {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 0.35rem;
       }
-      .lp-contact-card p { margin: 0; }
-      .lp-contact-card a { color: #2563eb; font-weight: 600; }
-      .lp-contact-card a:hover { color: #1d4ed8; }
-
-      .lp-btn-secondary {
-        background: transparent;
-        border: 2px solid #1a2332;
+      .form-row input,
+      .form-row textarea {
+        border: 1px solid #d1d5db;
         border-radius: 6px;
-        color: #1a2332;
-        display: inline-block;
+        font-size: 0.9375rem;
+        padding: 0.55rem 0.75rem;
+        width: 100%;
+        box-sizing: border-box;
+        transition: border-color 0.15s, box-shadow 0.15s;
+        font-family: inherit;
+      }
+      .form-row input:focus,
+      .form-row textarea:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+        outline: none;
+      }
+      .form-row textarea { resize: vertical; min-height: 130px; }
+      .form-row .optional { color: #6b7280; font-weight: 400; font-size: 0.8rem; }
+
+      .form-submit-btn {
+        background: #1a2332;
+        border: none;
+        border-radius: 6px;
+        color: #ffffff;
+        cursor: pointer;
         font-size: 0.9375rem;
         font-weight: 600;
-        margin-top: 1.5rem;
-        padding: 0.65rem 1.5rem;
-        text-decoration: none;
-        transition: background 0.15s, border-color 0.15s;
+        padding: 0.7rem 1.75rem;
+        transition: background 0.15s;
       }
-      .lp-btn-secondary:hover {
-        background: #1a2332;
-        color: #ffffff;
-        text-decoration: none;
+      .form-submit-btn:hover { background: #2d3d52; }
+      .form-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+      .form-status {
+        border-radius: 6px;
+        font-size: 0.9rem;
+        margin-top: 1rem;
+        padding: 0.75rem 1rem;
+        display: none;
+      }
+      .form-status.success {
+        background: #f0fdf4;
+        border: 1px solid #86efac;
+        color: #166534;
+        display: block;
+      }
+      .form-status.error {
+        background: #fef2f2;
+        border: 1px solid #fca5a5;
+        color: #991b1b;
+        display: block;
       }
 
       .lp-footer {
@@ -169,26 +195,32 @@
 
     <div class="lp-content">
 
-      <h2>Get in Touch</h2>
-      <p>FinalVerify is a small team. For questions about the tool, bug reports, or feedback, email us directly.</p>
+      <p>FinalVerify is a small team. Fill out the form below and we'll get back to you as soon as we can.</p>
 
-      <div class="lp-contact-card">
-        <p>Email: <a href="mailto:contact@finalverify.com">contact@finalverify.com</a></p>
-      </div>
-
-      <h2>Support</h2>
-      <p>If you're experiencing an issue with citation verification, please include:</p>
-      <ul style="color:#374151;font-size:1rem;line-height:1.7;padding-left:1.5rem;margin:0 0 1rem">
-        <li>A description of the issue</li>
-        <li>The citation(s) that are not verifying correctly (if applicable)</li>
-        <li>The document type you uploaded (DOCX, PDF, or pasted text)</li>
-      </ul>
-      <p>We will respond as quickly as we can.</p>
-
-      <h2>Privacy Concerns</h2>
-      <p>For questions about your data or our privacy practices, see our <a href="/privacy" style="color:#2563eb">Privacy Policy</a> or email us at <a href="mailto:contact@finalverify.com" style="color:#2563eb">contact@finalverify.com</a>.</p>
-
-      <a href="/" class="lp-btn-secondary">&larr; Back to Home</a>
+      <form class="contact-form" id="contact-form" novalidate>
+        <div class="form-row">
+          <label for="cf-name">Name</label>
+          <input type="text" id="cf-name" name="name" required autocomplete="name" />
+        </div>
+        <div class="form-row">
+          <label for="cf-org">Organization <span class="optional">(optional)</span></label>
+          <input type="text" id="cf-org" name="organization" autocomplete="organization" />
+        </div>
+        <div class="form-row">
+          <label for="cf-email">Email</label>
+          <input type="email" id="cf-email" name="email" required autocomplete="email" />
+        </div>
+        <div class="form-row">
+          <label for="cf-subject">Subject</label>
+          <input type="text" id="cf-subject" name="subject" required />
+        </div>
+        <div class="form-row">
+          <label for="cf-message">Message</label>
+          <textarea id="cf-message" name="message" required></textarea>
+        </div>
+        <button type="submit" class="form-submit-btn" id="cf-submit">Send Message</button>
+        <div class="form-status" id="cf-status" role="alert"></div>
+      </form>
 
     </div>
 
@@ -204,6 +236,45 @@
         </div>
       </div>
     </footer>
+
+    <script>
+      (function () {
+        var form = document.getElementById("contact-form");
+        var btn = document.getElementById("cf-submit");
+        var status = document.getElementById("cf-status");
+
+        function showStatus(msg, isError) {
+          status.textContent = msg;
+          status.className = "form-status " + (isError ? "error" : "success");
+        }
+
+        form.addEventListener("submit", function (e) {
+          e.preventDefault();
+          status.className = "form-status";
+          btn.disabled = true;
+          btn.textContent = "Sending…";
+
+          var data = new FormData(form);
+          fetch("/contact", { method: "POST", body: data })
+            .then(function (r) { return r.json(); })
+            .then(function (json) {
+              if (json.ok) {
+                showStatus("Message sent. We'll be in touch soon.", false);
+                form.reset();
+              } else {
+                showStatus(json.error || "Something went wrong. Please try again.", true);
+              }
+            })
+            .catch(function () {
+              showStatus("Could not send message. Please check your connection and try again.", true);
+            })
+            .finally(function () {
+              btn.disabled = false;
+              btn.textContent = "Send Message";
+            });
+        });
+      })();
+    </script>
 
   </body>
 </html>

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 style="margin-bottom:1.25rem">Messages</h1>
+
+{% if messages %}
+<table class="data-table" style="width:100%;border-collapse:collapse">
+  <thead>
+    <tr>
+      <th style="text-align:left;padding:0.5rem 0.75rem;border-bottom:2px solid #e5e7eb;white-space:nowrap">Date</th>
+      <th style="text-align:left;padding:0.5rem 0.75rem;border-bottom:2px solid #e5e7eb">Name</th>
+      <th style="text-align:left;padding:0.5rem 0.75rem;border-bottom:2px solid #e5e7eb">Organization</th>
+      <th style="text-align:left;padding:0.5rem 0.75rem;border-bottom:2px solid #e5e7eb">Email</th>
+      <th style="text-align:left;padding:0.5rem 0.75rem;border-bottom:2px solid #e5e7eb">Subject</th>
+      <th style="text-align:left;padding:0.5rem 0.75rem;border-bottom:2px solid #e5e7eb">Preview</th>
+      <th style="padding:0.5rem 0.75rem;border-bottom:2px solid #e5e7eb"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for m in messages %}
+    <tr style="{% if not m.is_read %}font-weight:600;background:#fffbeb{% endif %}border-bottom:1px solid #f3f4f6">
+      <td style="padding:0.55rem 0.75rem;white-space:nowrap;color:#6b7280;font-size:0.85rem">{{ m.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+      <td style="padding:0.55rem 0.75rem">{{ m.name }}</td>
+      <td style="padding:0.55rem 0.75rem;color:#6b7280">{{ m.organization or "—" }}</td>
+      <td style="padding:0.55rem 0.75rem;font-size:0.9rem">{{ m.email }}</td>
+      <td style="padding:0.55rem 0.75rem">{{ m.subject }}</td>
+      <td style="padding:0.55rem 0.75rem;color:#6b7280;font-size:0.875rem;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ m.message_preview }}</td>
+      <td style="padding:0.55rem 0.75rem">
+        <a href="/admin/messages/{{ m.id }}">View</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:#6b7280">No messages yet.</p>
+{% endif %}
+{% endblock %}

@@ -196,6 +196,21 @@ class StatuteVerificationCache(Base):
     )
 
 
+class ContactMessage(Base):
+    __tablename__ = "contact_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    organization: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    email: Mapped[str] = mapped_column(String(255))
+    subject: Mapped[str] = mapped_column(String(500), default="")
+    message: Mapped[str] = mapped_column(Text)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class WaitlistEntry(Base):
     __tablename__ = "waitlist_entries"
 
