@@ -71,6 +71,7 @@ def _normalize_payload(data: Any) -> RiskMemo:
 
 
 def _build_prompt(run_data: dict[str, Any]) -> str:
+    audit_mode = run_data.get("audit_mode", "self_review")
     summary = run_data.get("verification_summary", {})
     source_type = run_data.get("source_type", "unknown")
     source_name = run_data.get("source_name") or "unnamed source"
@@ -82,11 +83,27 @@ def _build_prompt(run_data: dict[str, Any]) -> str:
     verified_count = summary.get("VERIFIED", 0)
     effectively_verified = verified_count + derived_verified_parent
 
-    lines = [
-        "You are a legal citation audit assistant. Analyse the audit results below and produce "
-        "a concise advisory risk memo. This is NOT general legal advice — it is specifically "
-        "about citation verification accuracy for a legal document.",
-        "",
+    if audit_mode == "opposing_review":
+        intro = [
+            "You are analyzing OPPOSING COUNSEL's legal filing for citation weaknesses and "
+            "vulnerabilities. Your role is to identify citations that could not be verified, "
+            "are ambiguous, or suggest patterns of sloppy citation work — framing each finding "
+            "as a potential vulnerability in their argument.",
+            "Suggest concrete ways the reviewing attorney might challenge or question these "
+            "citations at motion practice or trial.",
+            "This is NOT general legal advice — it is specifically about citation verification "
+            "accuracy in the opposing party's filing.",
+            "",
+        ]
+    else:
+        intro = [
+            "You are a legal citation audit assistant. Analyse the audit results below and produce "
+            "a concise advisory risk memo. This is NOT general legal advice — it is specifically "
+            "about citation verification accuracy for a legal document.",
+            "",
+        ]
+
+    lines = intro + [
         "IMPORTANT — DERIVED citations (e.g. 'Id.' references):",
         "  DERIVED citations inherit their parent citation's trust level.",
         "  A DERIVED citation whose parent is VERIFIED is equally trustworthy and should NOT "
@@ -124,23 +141,35 @@ def _build_prompt(run_data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+_BASE_SYSTEM_CONTENT = (
+    "You produce concise advisory legal citation risk memos. "
+    "Always return valid JSON with the exact keys requested. "
+    "DERIVED citations (e.g. 'Id.') inherit their parent's trust level: "
+    "only flag them as a risk when their parent is NOT_FOUND, AMBIGUOUS, or ERROR."
+)
+
+_OPPOSING_SYSTEM_SUFFIX = (
+    " You are analyzing opposing counsel's filing for citation weaknesses. "
+    "Frame issues as potential vulnerabilities in their argument. "
+    "Suggest how the reviewing attorney might challenge or question these citations."
+)
+
+
+def _system_content(audit_mode: str = "self_review") -> str:
+    if audit_mode == "opposing_review":
+        return _BASE_SYSTEM_CONTENT + _OPPOSING_SYSTEM_SUFFIX
+    return _BASE_SYSTEM_CONTENT
+
+
 def _call_openai_client(
-    client: openai.OpenAI, model: str, prompt: str
+    client: openai.OpenAI, model: str, prompt: str, audit_mode: str = "self_review"
 ) -> openai.types.chat.ChatCompletion:
     """Shared chat completion call used by both providers."""
     return client.chat.completions.create(
         model=model,
         response_format={"type": "json_object"},
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You produce concise advisory legal citation risk memos. "
-                    "Always return valid JSON with the exact keys requested. "
-                    "DERIVED citations (e.g. 'Id.') inherit their parent's trust level: "
-                    "only flag them as a risk when their parent is NOT_FOUND, AMBIGUOUS, or ERROR."
-                ),
-            },
+            {"role": "system", "content": _system_content(audit_mode)},
             {"role": "user", "content": prompt},
         ],
         temperature=0.1,
@@ -170,9 +199,10 @@ class OpenAIProvider:
     def generate_memo(self, audit_context: dict[str, Any]) -> RiskMemo:
         t0 = time.perf_counter()
         prompt = _build_prompt(audit_context)
+        audit_mode = audit_context.get("audit_mode", "self_review")
 
         try:
-            response = _call_openai_client(self._client, self._model, prompt)
+            response = _call_openai_client(self._client, self._model, prompt, audit_mode)
         except openai.AuthenticationError:
             logger.error("OpenAI authentication error — invalid API key.")
             return unavailable_memo("Invalid OpenAI API key.")
@@ -229,9 +259,10 @@ class OllamaProvider:
     def generate_memo(self, audit_context: dict[str, Any]) -> RiskMemo:
         t0 = time.perf_counter()
         prompt = _build_prompt(audit_context)
+        audit_mode = audit_context.get("audit_mode", "self_review")
 
         try:
-            response = _call_openai_client(self._client, self._model, prompt)
+            response = _call_openai_client(self._client, self._model, prompt, audit_mode)
         except openai.APITimeoutError:
             logger.warning("Ollama request timed out (model=%s)", self._model)
             return unavailable_memo(

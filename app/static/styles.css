@@ -814,6 +814,85 @@ details > summary:hover {
   margin-bottom: 0.5rem;
 }
 
+/* ── Audit mode toggle ──────────────────────────────────────────────────── */
+.audit-mode-toggle {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.1rem;
+  flex-wrap: wrap;
+}
+
+.audit-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  font-weight: 500;
+  padding: 0.45rem 0.9rem;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.audit-mode-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--blue-bg);
+  color: var(--accent);
+}
+
+.audit-mode-option input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+/* ── Mode badges ─────────────────────────────────────────────────────────── */
+.mode-badge {
+  display: inline-block;
+  font-size: 0.73rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm);
+  vertical-align: middle;
+  text-transform: uppercase;
+}
+
+.mode-badge-opposing {
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+
+.mode-badge-self {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+/* ── Opposing mode banner (results header) ──────────────────────────────── */
+.opposing-mode-banner {
+  font-size: 1.0rem;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* ── Opposing-mode per-citation notes ───────────────────────────────────── */
+.opposing-citation-note {
+  font-size: 0.84rem;
+  font-weight: 500;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius-sm);
+  margin: 0.25rem 0 0.5rem;
+  display: inline-block;
+}
+
+.opposing-note-weak    { background: var(--red-bg);   color: #b91c1c; }
+.opposing-note-caution { background: var(--amber-bg); color: var(--amber); }
+.opposing-note-ok      { background: var(--green-bg); color: var(--green); }
+
 /* ── Provenance badges ──────────────────────────────────────────────────── */
 .provenance-badge {
   border-radius: var(--radius-sm);

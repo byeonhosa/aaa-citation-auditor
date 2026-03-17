@@ -46,6 +46,8 @@ class AuditRun(Base):
     error_count: Mapped[int] = mapped_column(Integer, default=0)
     unverified_no_token_count: Mapped[int] = mapped_column(Integer, default=0)
 
+    audit_mode: Mapped[str] = mapped_column(String(32), default="self_review")
+
     input_text_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
     warning_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     memo_json: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -93,6 +93,7 @@ def save_audit_run(
     warnings: Sequence[str],
     citations: Sequence[CitationResult],
     user_id: int | None = None,
+    audit_mode: str = "self_review",
 ) -> AuditRun:
     status_counts = {
         "VERIFIED": 0,
@@ -113,6 +114,7 @@ def save_audit_run(
         user_id=user_id,
         source_type=source_type,
         source_name=source_name,
+        audit_mode=audit_mode,
         citation_count=len(citations),
         verified_count=status_counts["VERIFIED"],
         not_found_count=status_counts["NOT_FOUND"],
