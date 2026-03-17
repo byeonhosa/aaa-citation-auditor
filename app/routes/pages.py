@@ -305,6 +305,7 @@ def render_dashboard(
     result_groups: list[dict[str, Any]] | None = None,
     warnings: list[str] | None = None,
     validation_message: str | None = None,
+    audit_mode: str = "self_review",
 ) -> HTMLResponse:
     groups = result_groups or []
     warnings = warnings or []
@@ -322,6 +323,7 @@ def render_dashboard(
             "total_citations": total_citations,
             "provenance_help": PROVENANCE_HELP,
             "current_user": _user_ctx(request),
+            "audit_mode": audit_mode,
         },
     )
 
@@ -377,6 +379,9 @@ async def run_audit(
             warnings=shared_warnings,
             validation_message=validation_message,
         )
+
+    # Sanitise audit_mode — only accept known values
+    safe_mode = audit_mode if audit_mode in ("self_review", "opposing_review") else "self_review"
 
     for source in sources:
         started = perf_counter()
@@ -461,11 +466,6 @@ async def run_audit(
 
         verification_summary = summarize_verification_statuses(citation_results)
 
-        # Sanitise audit_mode — only accept known values
-        safe_mode = (
-            audit_mode if audit_mode in ("self_review", "opposing_review") else "self_review"
-        )
-
         with db_session() as db:
             run = save_audit_run(
                 db,
@@ -543,6 +543,7 @@ async def run_audit(
         pasted_text=pasted_text,
         result_groups=result_groups,
         warnings=shared_warnings,
+        audit_mode=safe_mode,
     )
 
 

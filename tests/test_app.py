@@ -5392,17 +5392,19 @@ def test_report_history_detail_has_pdf_button() -> None:
 
 
 def test_audit_mode_self_review_is_default_on_dashboard() -> None:
-    """Dashboard form must have 'self_review' radio selected by default."""
+    """Dashboard form: self_review radio is checked, opposing_review is not, by default."""
     response = _authed_dashboard_response()
     assert 'value="self_review"' in response.text
     assert 'value="opposing_review"' in response.text
+    # self_review input must carry the checked attribute; opposing_review must not
+    assert 'value="self_review" checked' in response.text
+    assert 'value="opposing_review" checked' not in response.text
 
 
 def test_audit_mode_persisted_self_review() -> None:
-    """Submitting audit with no explicit mode persists audit_mode='self_review'."""
+    """Submitting audit without an explicit mode defaults to persisting audit_mode='self_review'."""
     from sqlalchemy import delete
 
-    from aaa_db.models import User
     from app.services.auth import create_user
 
     email = "mode_self@authtest.invalid"
@@ -5415,7 +5417,7 @@ def test_audit_mode_persisted_self_review() -> None:
             c.post("/login", data={"email": email, "password": "pw123"}, follow_redirects=True)
             c.post(
                 "/audit",
-                data={"pasted_text": "See Brown v. Board, 347 U.S. 483 (1954).", "audit_mode": "self_review"},  # noqa: E501
+                data={"pasted_text": "See Brown v. Board, 347 U.S. 483 (1954)."},
                 follow_redirects=True,
             )
 

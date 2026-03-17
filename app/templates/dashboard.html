@@ -9,11 +9,11 @@
   <form action="/audit" method="post" enctype="multipart/form-data" id="audit-form">
     <div class="audit-mode-toggle" role="group" aria-label="Audit mode">
       <label class="audit-mode-option">
-        <input type="radio" name="audit_mode" value="self_review" checked id="mode-self">
+        <input type="radio" name="audit_mode" value="self_review" {% if audit_mode != 'opposing_review' %}checked{% endif %} id="mode-self">
         <span>Review my document</span>
       </label>
       <label class="audit-mode-option">
-        <input type="radio" name="audit_mode" value="opposing_review" id="mode-opposing">
+        <input type="radio" name="audit_mode" value="opposing_review" {% if audit_mode == 'opposing_review' %}checked{% endif %} id="mode-opposing">
         <span>Review opposing counsel's filing</span>
       </label>
     </div>
