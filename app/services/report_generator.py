@@ -213,32 +213,104 @@ def _make_styles() -> dict[str, ParagraphStyle]:
 
 # ── Risk assessment ───────────────────────────────────────────────────────────
 
+_RISKY_STATUSES = frozenset({"NOT_FOUND", "AMBIGUOUS", "ERROR"})
 
-def _risk_level(run: AuditRun) -> tuple[str, str]:
-    """Return (level, description) where level is 'LOW', 'MEDIUM', or 'HIGH'."""
+
+def _risk_level(run: AuditRun) -> tuple[str, str, int, int, int]:
+    """Return (level, description, effectively_verified, genuinely_unverified, derived_vp).
+
+    Uses the same logic as the AI memo: DERIVED citations whose parent citation
+    is VERIFIED are counted as effectively verified, not as risky.  Plain
+    NOT_FOUND / AMBIGUOUS / ERROR citations are genuinely unverified.
+    STATUTE_DETECTED citations are informational and do not affect risk.
+    """
     total = run.citation_count
     if total == 0:
-        return ("LOW", "No citations were found in this document.")
-    verified = (
-        (run.verified_count or 0) + (run.statute_verified_count or 0) + (run.derived_count or 0)
+        return ("LOW", "No citations were found in this document.", 0, 0, 0)
+
+    # Build a lookup of raw_text → status for non-DERIVED citations
+    parent_status: dict[str, str] = {
+        c.raw_text: (c.verification_status or "")
+        for c in run.citations
+        if c.raw_text and c.verification_status != "DERIVED"
+    }
+
+    derived_verified_parent = 0
+    derived_risky_parent = 0
+    for c in run.citations:
+        if c.verification_status != "DERIVED":
+            continue
+        pstatus = parent_status.get(c.resolved_from or "", "") if c.resolved_from else ""
+        if pstatus == "VERIFIED":
+            derived_verified_parent += 1
+        elif pstatus in _RISKY_STATUSES or not pstatus:
+            derived_risky_parent += 1
+
+    effectively_verified = (
+        (run.verified_count or 0)
+        + (run.statute_verified_count or 0)
+        + derived_verified_parent
     )
-    problem = (run.not_found_count or 0) + (run.ambiguous_count or 0) + (run.error_count or 0)
-    ratio = verified / total
-    if problem == 0 and ratio >= 0.90:
+    genuinely_unverified = (
+        (run.not_found_count or 0)
+        + (run.ambiguous_count or 0)
+        + (run.error_count or 0)
+        + derived_risky_parent
+    )
+    statute_detected = run.statute_count or 0
+
+    statute_note = (
+        f" {statute_detected} statute citation(s) detected but not fully verified (informational)."
+        if statute_detected
+        else ""
+    )
+
+    if genuinely_unverified == 0:
         return (
             "LOW",
-            f"All or nearly all citations ({verified} of {total}) verified successfully "
-            f"with no unresolved items.",
+            f"All {effectively_verified} of {total} citations are effectively verified"
+            + (
+                f" (including {derived_verified_parent} derived citation(s) with verified parents)"
+                if derived_verified_parent
+                else ""
+            )
+            + f" with no unresolved items.{statute_note}",
+            effectively_verified,
+            genuinely_unverified,
+            derived_verified_parent,
         )
-    if ratio >= 0.70 and problem <= 2:
+
+    ratio = genuinely_unverified / total
+    if ratio < 0.05:
+        return (
+            "LOW",
+            f"{effectively_verified} of {total} citations are effectively verified"
+            + (
+                f" (including {derived_verified_parent} derived citation(s) with verified parents)"
+                if derived_verified_parent
+                else ""
+            )
+            + f". {genuinely_unverified} citation(s) could not be verified.{statute_note}",
+            effectively_verified,
+            genuinely_unverified,
+            derived_verified_parent,
+        )
+    if ratio <= 0.15:
         return (
             "MEDIUM",
-            f"{verified} of {total} citations verified. {problem} citation(s) require attention.",
+            f"{effectively_verified} of {total} citations are effectively verified. "
+            f"{genuinely_unverified} citation(s) require attention.{statute_note}",
+            effectively_verified,
+            genuinely_unverified,
+            derived_verified_parent,
         )
     return (
         "HIGH",
-        f"{problem} of {total} citations could not be verified or are unresolved. "
-        "Manual review is strongly recommended before filing.",
+        f"{genuinely_unverified} of {total} citations could not be verified or are unresolved. "
+        f"Manual review is strongly recommended before filing.{statute_note}",
+        effectively_verified,
+        genuinely_unverified,
+        derived_verified_parent,
     )
 
 
@@ -383,7 +455,7 @@ def generate_pdf_report(
     # ── Executive Summary ─────────────────────────────────────────────────────
     story.append(Paragraph("Executive Summary", styles["section_heading"]))
 
-    risk, risk_desc = _risk_level(run)
+    risk, risk_desc, _eff_verified, _genuinely_unverified, _derived_vp = _risk_level(run)
     risk_label = {"LOW": "Low Risk", "MEDIUM": "Medium Risk", "HIGH": "High Risk"}[risk]
     story.append(
         Paragraph(

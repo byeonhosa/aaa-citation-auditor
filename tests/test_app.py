@@ -5295,7 +5295,7 @@ def test_report_generator_risk_assessment_high() -> None:
         unverified_no_token_count=0,
     )
     run.citations = []
-    level, _ = _risk_level(run)
+    level, *_ = _risk_level(run)
     assert level == "HIGH"
 
 
@@ -5318,8 +5318,56 @@ def test_report_generator_risk_assessment_low() -> None:
         unverified_no_token_count=0,
     )
     run.citations = []
-    level, _ = _risk_level(run)
+    level, *_ = _risk_level(run)
     assert level == "LOW"
+
+
+def test_report_generator_risk_assessment_derived_verified_parents() -> None:
+    """DERIVED citations with VERIFIED parents must be treated as effectively verified (LOW risk)."""
+    from aaa_db.models import AuditRun as _AuditRun, CitationResultRecord as _CRR
+    from app.services.report_generator import _risk_level
+
+    # Mirrors the real-world case: 118 verified + 11 derived-of-verified = 129 total, 0 unverified
+    run = _AuditRun(
+        id=1,
+        source_type="text",
+        citation_count=129,
+        verified_count=118,
+        not_found_count=0,
+        ambiguous_count=0,
+        derived_count=11,
+        statute_count=0,
+        statute_verified_count=0,
+        error_count=0,
+        unverified_no_token_count=0,
+    )
+    parent = _CRR(
+        id=1,
+        raw_text="Brown v. Board, 347 U.S. 483",
+        citation_type="FullCaseCitation",
+        verification_status="VERIFIED",
+        resolution_method="direct",
+        audit_run_id=1,
+    )
+    derived_citations = [
+        _CRR(
+            id=2 + i,
+            raw_text=f"Brown v. Board, 347 U.S. 483, 49{i}",
+            citation_type="FullCaseCitation",
+            verification_status="DERIVED",
+            resolved_from="Brown v. Board, 347 U.S. 483",
+            resolution_method="derived",
+            audit_run_id=1,
+        )
+        for i in range(11)
+    ]
+    run.citations = [parent] + derived_citations
+    level, desc, eff_verified, genuinely_unverified, derived_vp = _risk_level(run)
+    assert level == "LOW"
+    assert genuinely_unverified == 0
+    assert derived_vp == 11
+    assert eff_verified == 118 + 11
+    assert "derived" in desc.lower()
 
 
 def test_report_history_detail_has_pdf_button() -> None:
