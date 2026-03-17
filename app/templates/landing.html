@@ -389,6 +389,25 @@
         text-decoration: none;
       }
 
+      .lp-btn-secondary-dark {
+        background: transparent;
+        border: 2px solid #d1d5db;
+        border-radius: 6px;
+        color: #374151;
+        cursor: pointer;
+        display: inline-block;
+        font-size: 0.9375rem;
+        font-weight: 600;
+        padding: 0.65rem 1.5rem;
+        text-decoration: none;
+        transition: border-color 0.15s;
+        width: 100%;
+      }
+
+      .lp-btn-secondary-dark:hover {
+        border-color: #9ca3af;
+      }
+
       /* ── Final CTA ── */
       .lp-cta {
         background: #1a2332;
@@ -549,7 +568,7 @@
     <section id="features" class="lp-section">
       <div class="lp-container">
         <h2 class="lp-section-title">What FinalVerify Checks</h2>
-        <p class="lp-section-lead">Upload a document and get a full citation report in seconds — with provenance labels showing exactly how each citation was verified.</p>
+        <p class="lp-section-lead">Upload a document and get a full citation report often in a minute or less — with provenance labels showing exactly how each citation was verified.</p>
         <div class="lp-features-grid">
 
           <!-- Case Law -->
@@ -598,7 +617,21 @@
               </svg>
             </div>
             <h3>AI Risk Analysis</h3>
-            <p>Get an AI-powered risk memo highlighting potential citation issues. Runs with a local model or your own OpenAI key — your documents never leave your server.</p>
+            <p>Get an AI-powered risk memo highlighting potential citation issues in your document. Default analysis uses an open-source model running on our server.</p>
+          </div>
+
+          <!-- Opposing Counsel Analysis -->
+          <div class="lp-feature-card">
+            <div class="lp-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3l4 8H8l4-8z"/>
+                <path d="M3 18h6l-3-8-3 8z"/>
+                <path d="M15 18h6l-3-8-3 8z"/>
+                <line x1="3" y1="21" x2="21" y2="21"/>
+              </svg>
+            </div>
+            <h3>Opposing Counsel Analysis</h3>
+            <p>Upload the other side's brief and identify citation weaknesses. Same verification engine, framed to help you prepare your response. AI-powered analysis highlights potential vulnerabilities.</p>
           </div>
 
         </div>
@@ -609,7 +642,7 @@
     <section id="how-it-works" class="lp-section-alt">
       <div class="lp-container">
         <h2 class="lp-section-title">How It Works</h2>
-        <p class="lp-section-lead">From upload to verified report in seconds — with no setup required.</p>
+        <p class="lp-section-lead">From upload to verified report — with no setup required.</p>
         <ol class="lp-steps">
           <li class="lp-step">
             <h3>Upload your document</h3>
@@ -617,7 +650,7 @@
           </li>
           <li class="lp-step">
             <h3>Automatic verification</h3>
-            <p>Citations are extracted and checked against authoritative databases in seconds.</p>
+            <p>Citations are extracted and checked against authoritative databases automatically.</p>
           </li>
           <li class="lp-step">
             <h3>Review with confidence</h3>
@@ -625,7 +658,7 @@
           </li>
           <li class="lp-step">
             <h3>Export your report</h3>
-            <p>Markdown, CSV, or printable HTML — ready for your file or opposing counsel.</p>
+            <p>Download a formal Citation Verification Report (PDF) for your case file, or export as Markdown, CSV, or printable HTML.</p>
           </li>
         </ol>
       </div>
@@ -637,7 +670,7 @@
         <h2 class="lp-section-title">Built for lawyers who need to trust their tools</h2>
         <ul class="lp-trust-list">
           <li>Free to use — no credit card required</li>
-          <li>Your documents stay on your server — never sent to third parties for processing</li>
+          <li>Your documents are processed securely and never stored after analysis. AI risk analysis runs on our server using open-source models — no data sent to third parties.<br><small style="color:#64748b;font-size:0.85rem">Optional enhanced AI analysis via OpenAI is available; when used, citation data is sent to OpenAI under their privacy policy.</small></li>
           <li>Open verification sources — CourtListener, Virginia LIS, GovInfo</li>
           <li>Every citation shows its verification provenance — no hidden algorithms</li>
         </ul>
@@ -652,9 +685,9 @@
         <div class="lp-pricing-grid">
 
           <div class="lp-price-card featured">
-            <div class="lp-price-badge">Free Forever</div>
+            <div class="lp-price-badge">Free</div>
             <h3>Free</h3>
-            <p class="lp-price-desc">Full access. Upload documents, verify citations, generate reports. Free forever.</p>
+            <p class="lp-price-desc">Full access to citation verification, provenance tracking, and report generation. No credit card required.</p>
             <a href="/register" class="lp-btn-primary">Get Started Free</a>
           </div>
 
@@ -662,7 +695,17 @@
             <div class="lp-price-badge" style="background:#f1f5f9;color:#64748b;">Coming Soon</div>
             <h3>Professional</h3>
             <p class="lp-price-desc">OpenAI-powered analysis, priority support, team accounts, Word add-in.</p>
-            <span class="lp-btn-disabled">Join Waitlist</span>
+            <div id="waitlist-area">
+              <button type="button" class="lp-btn-secondary-dark" id="waitlist-toggle" onclick="document.getElementById('waitlist-form-wrap').style.display='block';this.style.display='none'">Join Waitlist</button>
+              <div id="waitlist-form-wrap" style="display:none">
+                <form id="waitlist-form" style="margin-top:0.75rem">
+                  <input type="email" id="waitlist-email" placeholder="you@lawfirm.com" required style="padding:0.5rem 0.75rem;border:1px solid #d1d5db;border-radius:4px;font-size:0.9375rem;width:100%;box-sizing:border-box;margin-bottom:0.5rem">
+                  <button type="submit" class="lp-btn-primary" style="width:100%">Notify Me</button>
+                </form>
+                <p id="waitlist-success" style="display:none;color:#15803d;font-size:0.9rem;margin-top:0.5rem">Thanks! We'll notify you when the Professional plan launches.</p>
+                <p id="waitlist-error" style="display:none;color:#b91c1c;font-size:0.9rem;margin-top:0.5rem"></p>
+              </div>
+            </div>
           </div>
 
         </div>
@@ -684,13 +727,43 @@
         <div class="lp-footer-inner">
           <span class="lp-footer-brand">FinalVerify — Citation verification for legal professionals</span>
           <ul class="lp-footer-links">
-            <li><a href="#">About</a></li>
-            <li><a href="#">Contact</a></li>
-            <li><a href="#">Privacy Policy</a></li>
+            <li><a href="/about">About</a></li>
+            <li><a href="/contact">Contact</a></li>
+            <li><a href="/privacy">Privacy Policy</a></li>
           </ul>
         </div>
       </div>
     </footer>
 
+  <script>
+    const form = document.getElementById('waitlist-form');
+    if (form) {
+      form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const email = document.getElementById('waitlist-email').value;
+        const success = document.getElementById('waitlist-success');
+        const error = document.getElementById('waitlist-error');
+        try {
+          const resp = await fetch('/waitlist', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: 'email=' + encodeURIComponent(email)
+          });
+          const data = await resp.json();
+          if (data.ok) {
+            form.style.display = 'none';
+            success.style.display = 'block';
+            error.style.display = 'none';
+          } else {
+            error.textContent = data.error || 'Something went wrong. Please try again.';
+            error.style.display = 'block';
+          }
+        } catch(err) {
+          error.textContent = 'Something went wrong. Please try again.';
+          error.style.display = 'block';
+        }
+      });
+    }
+  </script>
   </body>
 </html>

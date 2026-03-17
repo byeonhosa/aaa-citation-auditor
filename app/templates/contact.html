@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contact — FinalVerify</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <style>
+      html { scroll-behavior: smooth; }
+
+      .lp-container { margin: 0 auto; max-width: 1100px; padding: 0 1.5rem; }
+
+      .lp-header {
+        background: #1a2332;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+      .lp-header-inner {
+        align-items: center;
+        display: flex;
+        height: 56px;
+        justify-content: space-between;
+        margin: 0 auto;
+        max-width: 1100px;
+        padding: 0 1.5rem;
+      }
+      .lp-brand {
+        color: #ffffff;
+        font-size: 1.1rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        text-decoration: none;
+      }
+      .lp-brand:hover { color: #e2e8f0; text-decoration: none; }
+      .lp-nav { display: flex; gap: 0.5rem; align-items: center; }
+      .lp-nav a {
+        border-radius: 4px;
+        color: rgba(255,255,255,0.85);
+        font-size: 0.875rem;
+        font-weight: 500;
+        padding: 0.4rem 0.85rem;
+        text-decoration: none;
+        transition: background 0.15s, color 0.15s;
+      }
+      .lp-nav a:hover { background: rgba(255,255,255,0.12); color: #ffffff; text-decoration: none; }
+      .lp-nav .nav-cta { background: #2563eb; color: #ffffff; border-radius: 4px; }
+      .lp-nav .nav-cta:hover { background: #1d4ed8; text-decoration: none; }
+
+      .lp-page-hero {
+        background: #1a2332;
+        color: #ffffff;
+        padding: 56px 0 64px;
+        text-align: center;
+      }
+      .lp-page-hero h1 {
+        color: #ffffff;
+        font-size: 2.25rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin-bottom: 0.75rem;
+      }
+      .lp-page-hero p {
+        color: rgba(255,255,255,0.78);
+        font-size: 1.05rem;
+        margin: 0 auto;
+        max-width: 580px;
+      }
+
+      .lp-content {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 56px 1.5rem 72px;
+      }
+      .lp-content h2 {
+        color: #1a2332;
+        font-size: 1.35rem;
+        font-weight: 700;
+        margin: 2rem 0 0.6rem;
+      }
+      .lp-content h2:first-child { margin-top: 0; }
+      .lp-content p {
+        color: #374151;
+        font-size: 1rem;
+        line-height: 1.7;
+        margin: 0 0 1rem;
+      }
+
+      .lp-contact-card {
+        background: #f8f9fa;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 28px 32px;
+        margin-top: 1.5rem;
+      }
+      .lp-contact-card p { margin: 0; }
+      .lp-contact-card a { color: #2563eb; font-weight: 600; }
+      .lp-contact-card a:hover { color: #1d4ed8; }
+
+      .lp-btn-secondary {
+        background: transparent;
+        border: 2px solid #1a2332;
+        border-radius: 6px;
+        color: #1a2332;
+        display: inline-block;
+        font-size: 0.9375rem;
+        font-weight: 600;
+        margin-top: 1.5rem;
+        padding: 0.65rem 1.5rem;
+        text-decoration: none;
+        transition: background 0.15s, border-color 0.15s;
+      }
+      .lp-btn-secondary:hover {
+        background: #1a2332;
+        color: #ffffff;
+        text-decoration: none;
+      }
+
+      .lp-footer {
+        background: #f8f9fa;
+        border-top: 1px solid #e5e7eb;
+        padding: 28px 0;
+      }
+      .lp-footer-inner {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
+      .lp-footer-brand { color: #475569; font-size: 0.875rem; }
+      .lp-footer-links {
+        display: flex;
+        gap: 1.25rem;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .lp-footer-links a { color: #475569; font-size: 0.875rem; text-decoration: none; }
+      .lp-footer-links a:hover { color: #1a2332; text-decoration: underline; }
+
+      @media (max-width: 768px) {
+        .lp-page-hero h1 { font-size: 1.75rem; }
+        .lp-footer-inner { flex-direction: column; text-align: center; }
+        .lp-footer-links { justify-content: center; }
+      }
+    </style>
+  </head>
+  <body>
+
+    <header class="lp-header">
+      <div class="lp-header-inner">
+        <a href="/" class="lp-brand">FinalVerify</a>
+        <nav class="lp-nav">
+          <a href="/login">Log In</a>
+          <a href="/register" class="nav-cta">Create Account</a>
+        </nav>
+      </div>
+    </header>
+
+    <section class="lp-page-hero">
+      <div class="lp-container">
+        <h1>Contact</h1>
+        <p>Questions, feedback, or issues? We'd like to hear from you.</p>
+      </div>
+    </section>
+
+    <div class="lp-content">
+
+      <h2>Get in Touch</h2>
+      <p>FinalVerify is a small team. For questions about the tool, bug reports, or feedback, email us directly.</p>
+
+      <div class="lp-contact-card">
+        <p>Email: <a href="mailto:contact@finalverify.com">contact@finalverify.com</a></p>
+      </div>
+
+      <h2>Support</h2>
+      <p>If you're experiencing an issue with citation verification, please include:</p>
+      <ul style="color:#374151;font-size:1rem;line-height:1.7;padding-left:1.5rem;margin:0 0 1rem">
+        <li>A description of the issue</li>
+        <li>The citation(s) that are not verifying correctly (if applicable)</li>
+        <li>The document type you uploaded (DOCX, PDF, or pasted text)</li>
+      </ul>
+      <p>We will respond as quickly as we can.</p>
+
+      <h2>Privacy Concerns</h2>
+      <p>For questions about your data or our privacy practices, see our <a href="/privacy" style="color:#2563eb">Privacy Policy</a> or email us at <a href="mailto:contact@finalverify.com" style="color:#2563eb">contact@finalverify.com</a>.</p>
+
+      <a href="/" class="lp-btn-secondary">&larr; Back to Home</a>
+
+    </div>
+
+    <footer class="lp-footer">
+      <div class="lp-container">
+        <div class="lp-footer-inner">
+          <span class="lp-footer-brand">FinalVerify — Citation verification for legal professionals</span>
+          <ul class="lp-footer-links">
+            <li><a href="/about">About</a></li>
+            <li><a href="/contact">Contact</a></li>
+            <li><a href="/privacy">Privacy Policy</a></li>
+          </ul>
+        </div>
+      </div>
+    </footer>
+
+  </body>
+</html>

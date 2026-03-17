@@ -915,3 +915,54 @@ def clear_cache(request: Request) -> HTMLResponse:
             "current_user": _user_ctx(request),
         },
     )
+
+
+@router.post("/waitlist", response_class=HTMLResponse)
+async def join_waitlist(
+    request: Request,
+    email: str = Form(...),
+) -> HTMLResponse:
+    from fastapi.responses import JSONResponse
+    from sqlalchemy.exc import IntegrityError
+
+    from aaa_db.models import WaitlistEntry
+
+    email = email.strip().lower()
+    if not email or "@" not in email:
+        return JSONResponse({"ok": False, "error": "Invalid email address."}, status_code=400)
+
+    try:
+        with db_session() as db:
+            db.add(WaitlistEntry(email=email))
+            db.commit()
+    except IntegrityError:
+        logger.debug("Waitlist: duplicate email ignored: %s", email)
+
+    return JSONResponse({"ok": True})
+
+
+@router.get("/about", response_class=HTMLResponse)
+def about_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request=request,
+        name="about.html",
+        context={"title": "About FinalVerify"},
+    )
+
+
+@router.get("/contact", response_class=HTMLResponse)
+def contact_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request=request,
+        name="contact.html",
+        context={"title": "Contact"},
+    )
+
+
+@router.get("/privacy", response_class=HTMLResponse)
+def privacy_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request=request,
+        name="privacy.html",
+        context={"title": "Privacy Policy"},
+    )

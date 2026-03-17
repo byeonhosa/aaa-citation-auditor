@@ -194,3 +194,15 @@ class StatuteVerificationCache(Base):
     __table_args__ = (
         Index("ix_statute_verification_cache_section_number", "section_number", unique=True),
     )
+
+
+class WaitlistEntry(Base):
+    __tablename__ = "waitlist_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (Index("ix_waitlist_email", "email", unique=True),)

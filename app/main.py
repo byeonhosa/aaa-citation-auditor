@@ -23,7 +23,12 @@ from app.settings import PROJECT_ROOT, STATIC_DIR, TEMPLATES_DIR, settings
 logger = logging.getLogger(__name__)
 
 # Paths that never require authentication.
-_PUBLIC_PATHS = frozenset({"/", "/login", "/register", "/logout", "/api/health"})
+_PUBLIC_PATHS = frozenset(
+    {
+        "/", "/login", "/register", "/logout", "/api/health",
+        "/waitlist", "/about", "/contact", "/privacy",
+    }
+)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
