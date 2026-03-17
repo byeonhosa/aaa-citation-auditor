@@ -188,6 +188,7 @@ def run_to_context(run: AuditRun) -> dict[str, Any]:
         "created_at": run.created_at,
         "source_type": run.source_type,
         "source_name": run.source_name,
+        "audit_mode": getattr(run, "audit_mode", "self_review") or "self_review",
         "citation_count": run.citation_count,
         "verified_count": run.verified_count,
         "not_found_count": run.not_found_count,
@@ -213,6 +214,7 @@ def build_ai_memo_input(
     citations: list[dict[str, str | None]],
     warnings: list[str],
     include_content: bool,
+    audit_mode: str = "self_review",
 ) -> dict[str, Any]:
     # Build a parent-status lookup keyed by raw_text for DERIVED parent resolution.
     parent_status: dict[str, str] = {
@@ -236,6 +238,7 @@ def build_ai_memo_input(
     payload: dict[str, Any] = {
         "source_type": source_type,
         "source_name": source_name,
+        "audit_mode": audit_mode,
         "verification_summary": verification_summary,
         "citation_count": len(citations),
         "warnings_present": bool(warnings),
@@ -267,6 +270,7 @@ def generate_ai_memo_for_group(
     verification_summary: dict[str, int],
     citations: list[dict[str, str | None]],
     warnings: list[str],
+    audit_mode: str = "self_review",
     effective_settings=None,
 ):
     eff = effective_settings or settings
@@ -277,6 +281,7 @@ def generate_ai_memo_for_group(
         citations=citations,
         warnings=warnings,
         include_content=eff.ai_memo_include_content,
+        audit_mode=audit_mode,
     )
 
     provider = build_provider(eff)
@@ -337,6 +342,7 @@ async def run_audit(
     request: Request,
     pasted_text: str = PASTED_TEXT_FORM,
     uploaded_files: list[UploadFile] | None = UPLOADED_FILES_FORM,
+    audit_mode: str = Form(default="self_review"),
 ) -> HTMLResponse:
     current_user = _user_ctx(request)
     shared_warnings: list[str] = []
@@ -455,6 +461,11 @@ async def run_audit(
 
         verification_summary = summarize_verification_statuses(citation_results)
 
+        # Sanitise audit_mode — only accept known values
+        safe_mode = (
+            audit_mode if audit_mode in ("self_review", "opposing_review") else "self_review"
+        )
+
         with db_session() as db:
             run = save_audit_run(
                 db,
@@ -464,6 +475,7 @@ async def run_audit(
                 warnings=group_warnings,
                 citations=citation_results,
                 user_id=current_user["id"] if current_user else None,
+                audit_mode=safe_mode,
             )
 
         latency_ms = int((perf_counter() - started) * 1000)
@@ -494,6 +506,7 @@ async def run_audit(
                 "run_id": run.id,
                 "source_type": source.source_type,
                 "source_name": source.source_name,
+                "audit_mode": safe_mode,
                 "citation_count": len(citation_results),
                 "verification_summary": verification_summary,
                 "citations": [
@@ -516,6 +529,7 @@ async def run_audit(
             verification_summary=result_groups[-1]["verification_summary"],
             citations=result_groups[-1]["citations"],
             warnings=group_warnings,
+            audit_mode=safe_mode,
             effective_settings=eff,
         )
         result_groups[-1]["ai_memo"] = ai_memo
@@ -599,6 +613,7 @@ def history_detail(request: Request, run_id: int) -> HTMLResponse:
         context={
             "title": f"Audit Run #{user_run_number}",
             "run": run_context,
+            "audit_mode": run_context.get("audit_mode", "self_review"),
             "user_run_number": user_run_number,
             "citations": citations,
             "provenance_breakdown": provenance_breakdown,
@@ -634,6 +649,7 @@ def regenerate_memo(request: Request, run_id: int) -> RedirectResponse:
         verification_summary=verification_summary,
         citations=citations_ctx,
         warnings=[run_context["warning_text"]] if run_context["warning_text"] else [],
+        audit_mode=run_context.get("audit_mode", "self_review"),
         effective_settings=eff,
     )
 

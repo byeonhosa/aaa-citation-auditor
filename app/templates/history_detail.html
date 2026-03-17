@@ -8,6 +8,13 @@
     <span><strong>Created:</strong> {{ run.created_at }}</span>
     <span><strong>Source:</strong> {{ run.source_type }}{% if run.source_name %} ({{ run.source_name }}){% endif %}</span>
     <span><strong>Citations:</strong> {{ run.citation_count }}</span>
+    <span><strong>Mode:</strong>
+      {% if audit_mode == 'opposing_review' %}
+      <span class="mode-badge mode-badge-opposing">Opposing Counsel Review</span>
+      {% else %}
+      <span class="mode-badge mode-badge-self">Self Review</span>
+      {% endif %}
+    </span>
   </div>
   {% if run.input_text_excerpt %}
   <p style="margin-top:0.75rem"><strong>Input excerpt:</strong> {{ run.input_text_excerpt }}</p>
@@ -98,9 +105,18 @@
         {% endif %}
       </p>
       <p><strong>Detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
+      {% if audit_mode == 'opposing_review' %}
+        {% if citation.verification_status == 'NOT_FOUND' %}
+        <p class="opposing-citation-note opposing-note-weak">&#9888; Citation not found — opposing counsel may be citing a non-existent or inaccessible authority.</p>
+        {% elif citation.verification_status == 'AMBIGUOUS' %}
+        <p class="opposing-citation-note opposing-note-caution">&#9888; Ambiguous citation — opposing counsel's reference is unclear and may not support their argument.</p>
+        {% elif citation.verification_status in ('VERIFIED', 'STATUTE_VERIFIED') %}
+        <p class="opposing-citation-note opposing-note-ok">&#10003; Citation verified — this authority exists.</p>
+        {% endif %}
+      {% endif %}
       {% if citation.verification_status == "NOT_FOUND" and citation.search_links %}
       <p class="help-verify-links">
-        <strong>Help me verify:</strong>
+        <strong>{% if audit_mode == 'opposing_review' %}Look up:{% else %}Help me verify:{% endif %}</strong>
         <a href="{{ citation.search_links.courtlistener }}" target="_blank" rel="noopener noreferrer">Search CourtListener</a>
         |
         <a href="{{ citation.search_links.google_scholar }}" target="_blank" rel="noopener noreferrer">Search Google Scholar</a>

@@ -392,11 +392,20 @@ def generate_pdf_report(
     user_email:
         Email of the user who owns the run (display only).
     """
+    audit_mode = getattr(run, "audit_mode", "self_review") or "self_review"
+    is_opposing = audit_mode == "opposing_review"
+
     buf = BytesIO()
     now = datetime.now(tz=timezone.utc)
     generated_dt = now.strftime("%Y-%m-%d %H:%M UTC")
     styles = _make_styles()
     page_hook = _PageTemplate(generated_dt, styles)
+
+    report_title = (
+        "Opposing Filing Citation Analysis Report"
+        if is_opposing
+        else "Citation Verification Report"
+    )
 
     doc = SimpleDocTemplate(
         buf,
@@ -405,29 +414,40 @@ def generate_pdf_report(
         rightMargin=0.75 * inch,
         topMargin=0.75 * inch,
         bottomMargin=0.75 * inch,
-        title="Citation Verification Report",
+        title=report_title,
         author="FinalVerify",
-        subject=f"Citation Verification Report — Run #{user_run_number or run.id}",
+        subject=f"{report_title} — Run #{user_run_number or run.id}",
     )
 
     story: list[Any] = []
 
     # ── Cover / Header ────────────────────────────────────────────────────────
     story.append(Spacer(1, 0.15 * inch))
-    story.append(Paragraph("Citation Verification Report", styles["cover_title"]))
+    story.append(Paragraph(report_title, styles["cover_title"]))
     story.append(Paragraph("Prepared by FinalVerify — finalverify.com", styles["cover_sub"]))
+    if is_opposing:
+        story.append(
+            Paragraph(
+                "Analysis of opposing party's filing for citation weaknesses and vulnerabilities.",
+                styles["cover_sub"],
+            )
+        )
     story.append(Spacer(1, 0.1 * inch))
 
     source_label = run.source_name or "(pasted text)"
     meta_rows = [
         ("Date of report:", generated_dt),
-        ("Document audited:", f"{source_label} ({run.source_type})"),
+        (
+            "Filing analyzed:" if is_opposing else "Document audited:",
+            f"{source_label} ({run.source_type})",
+        ),
         (
             "Report ID:",
             f"Run #{user_run_number or run.id}  (internal id: {run.id}"
             + (f", user: {user_email}" if user_email else "")
             + ")",
         ),
+        ("Mode:", "Opposing Counsel Review" if is_opposing else "Self Review"),
         ("Total citations:", str(run.citation_count)),
     ]
     meta_table = Table(
@@ -453,13 +473,32 @@ def generate_pdf_report(
     story.append(HRFlowable(width="100%", thickness=1, color=_NAVY, spaceAfter=10))
 
     # ── Executive Summary ─────────────────────────────────────────────────────
-    story.append(Paragraph("Executive Summary", styles["section_heading"]))
+    story.append(
+        Paragraph(
+            "Opposing Filing Analysis Summary" if is_opposing else "Executive Summary",
+            styles["section_heading"],
+        )
+    )
+    if is_opposing:
+        story.append(
+            Paragraph(
+                "This report analyzes the opposing party's filing for citation weaknesses. "
+                "Citations that could not be verified, are ambiguous, or are unresolved may "
+                "represent vulnerabilities in their argument.",
+                styles["body"],
+            )
+        )
 
     risk, risk_desc, _eff_verified, _genuinely_unverified, _derived_vp = _risk_level(run)
     risk_label = {"LOW": "Low Risk", "MEDIUM": "Medium Risk", "HIGH": "High Risk"}[risk]
+    risk_prefix = (
+        "<b>Citation Vulnerability Assessment:</b>"
+        if is_opposing
+        else "<b>Overall Risk Assessment:</b>"
+    )
     story.append(
         Paragraph(
-            f"<b>Overall Risk Assessment:</b> <font color='#{_get_hex(risk, 'fg')}'>"
+            f"{risk_prefix} <font color='#{_get_hex(risk, 'fg')}'>"
             f"{risk_label}</font>  —  {risk_desc}",
             styles["body"],
         )
@@ -548,14 +587,25 @@ def generate_pdf_report(
     # ── Citation Details ──────────────────────────────────────────────────────
     story.append(PageBreak())
     story.append(Paragraph("Citation Details", styles["section_heading"]))
-    story.append(
-        Paragraph(
-            "All citations are listed below, grouped by status. "
-            "Green rows indicate verified citations; amber indicates citations requiring "
-            "review; red indicates citations that could not be verified.",
-            styles["body"],
+    if is_opposing:
+        story.append(
+            Paragraph(
+                "All citations from the opposing filing are listed below, grouped by status. "
+                "Red rows indicate citations that could not be verified and may represent "
+                "argument vulnerabilities; amber rows indicate citations requiring attention; "
+                "green rows indicate confirmed citations.",
+                styles["body"],
+            )
         )
-    )
+    else:
+        story.append(
+            Paragraph(
+                "All citations are listed below, grouped by status. "
+                "Green rows indicate verified citations; amber indicates citations requiring "
+                "review; red indicates citations that could not be verified.",
+                styles["body"],
+            )
+        )
     story.append(Spacer(1, 6))
 
     if run.citations:
@@ -640,14 +690,17 @@ def generate_pdf_report(
     # ── Certification Statement ───────────────────────────────────────────────
     story.append(Paragraph("Certification Statement", styles["section_heading"]))
     story.append(HRFlowable(width="100%", thickness=0.5, color=_BORDER, spaceAfter=8))
-    story.append(
-        Paragraph(
-            f"This Citation Verification Report was generated on {generated_dt} by FinalVerify "
-            f"(finalverify.com) for the document identified above. The verification was performed "
-            f"using the sources and methods described in this report.",
-            styles["body"],
-        )
+    cert_body = (
+        f"This Opposing Filing Citation Analysis Report was generated on {generated_dt} by "
+        f"FinalVerify (finalverify.com) to analyze the filing identified above for citation "
+        f"weaknesses. The verification was performed using the sources and methods described in "
+        f"this report."
+        if is_opposing
+        else f"This Citation Verification Report was generated on {generated_dt} by FinalVerify "
+        f"(finalverify.com) for the document identified above. The verification was performed "
+        f"using the sources and methods described in this report."
     )
+    story.append(Paragraph(cert_body, styles["body"]))
 
     fingerprint = _report_fingerprint(run)
     cert_rows = [

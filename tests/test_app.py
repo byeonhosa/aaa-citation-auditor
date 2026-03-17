@@ -5323,8 +5323,9 @@ def test_report_generator_risk_assessment_low() -> None:
 
 
 def test_report_generator_risk_assessment_derived_verified_parents() -> None:
-    """DERIVED citations with VERIFIED parents must be treated as effectively verified (LOW risk)."""
-    from aaa_db.models import AuditRun as _AuditRun, CitationResultRecord as _CRR
+    """DERIVED citations with VERIFIED parents must be treated as effectively verified."""
+    from aaa_db.models import AuditRun as _AuditRun
+    from aaa_db.models import CitationResultRecord as _CRR
     from app.services.report_generator import _risk_level
 
     # Mirrors the real-world case: 118 verified + 11 derived-of-verified = 129 total, 0 unverified
@@ -5385,3 +5386,312 @@ def test_report_history_detail_has_pdf_button() -> None:
         assert "PDF" in resp.text
     finally:
         _teardown_report_user(uid)
+
+
+# ── Opposing Counsel Mode tests ───────────────────────────────────────────────
+
+
+def test_audit_mode_self_review_is_default_on_dashboard() -> None:
+    """Dashboard form must have 'self_review' radio selected by default."""
+    response = _authed_dashboard_response()
+    assert 'value="self_review"' in response.text
+    assert 'value="opposing_review"' in response.text
+
+
+def test_audit_mode_persisted_self_review() -> None:
+    """Submitting audit with no explicit mode persists audit_mode='self_review'."""
+    from sqlalchemy import delete
+
+    from aaa_db.models import User
+    from app.services.auth import create_user
+
+    email = "mode_self@authtest.invalid"
+    with SessionLocal() as db:
+        user = create_user(db, email=email, password="pw123", name="ModeUser")
+        uid = user.id
+
+    try:
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post("/login", data={"email": email, "password": "pw123"}, follow_redirects=True)
+            c.post(
+                "/audit",
+                data={"pasted_text": "See Brown v. Board, 347 U.S. 483 (1954).", "audit_mode": "self_review"},  # noqa: E501
+                follow_redirects=True,
+            )
+
+        with SessionLocal() as db:
+            from aaa_db.models import AuditRun
+
+            run = (
+                db.query(AuditRun)
+                .filter(AuditRun.user_id == uid)
+                .order_by(AuditRun.id.desc())
+                .first()
+            )
+            assert run is not None
+            assert getattr(run, "audit_mode", "self_review") == "self_review"
+    finally:
+        with SessionLocal() as db:
+            from aaa_db.models import AuditRun, User  # noqa: F811
+
+            db.execute(delete(AuditRun).where(AuditRun.user_id == uid))
+            db.execute(delete(User).where(User.id == uid))
+            db.commit()
+
+
+def test_audit_mode_persisted_opposing_review() -> None:
+    """Submitting audit with mode=opposing_review persists audit_mode='opposing_review'."""
+    from sqlalchemy import delete
+
+    from aaa_db.models import User
+    from app.services.auth import create_user
+
+    email = "mode_opp@authtest.invalid"
+    with SessionLocal() as db:
+        user = create_user(db, email=email, password="pw123", name="OppUser")
+        uid = user.id
+
+    try:
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post("/login", data={"email": email, "password": "pw123"}, follow_redirects=True)
+            c.post(
+                "/audit",
+                data={"pasted_text": "See Brown v. Board, 347 U.S. 483 (1954).", "audit_mode": "opposing_review"},  # noqa: E501
+                follow_redirects=True,
+            )
+
+        with SessionLocal() as db:
+            from aaa_db.models import AuditRun
+
+            run = (
+                db.query(AuditRun)
+                .filter(AuditRun.user_id == uid)
+                .order_by(AuditRun.id.desc())
+                .first()
+            )
+            assert run is not None
+            assert getattr(run, "audit_mode", "self_review") == "opposing_review"
+    finally:
+        with SessionLocal() as db:
+            from aaa_db.models import AuditRun, User  # noqa: F811
+
+            db.execute(delete(AuditRun).where(AuditRun.user_id == uid))
+            db.execute(delete(User).where(User.id == uid))
+            db.commit()
+
+
+def test_opposing_review_result_framing() -> None:
+    """Audit POST with opposing_review mode returns 'Opposing Counsel' framing in response."""
+    from sqlalchemy import delete
+
+    from aaa_db.models import User
+    from app.services.auth import create_user
+
+    email = "framing_opp@authtest.invalid"
+    with SessionLocal() as db:
+        user = create_user(db, email=email, password="pw123", name="FramingUser")
+        uid = user.id
+
+    try:
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post("/login", data={"email": email, "password": "pw123"}, follow_redirects=True)
+            resp = c.post(
+                "/audit",
+                data={"pasted_text": "See Brown v. Board, 347 U.S. 483 (1954).", "audit_mode": "opposing_review"},  # noqa: E501
+                follow_redirects=True,
+            )
+        assert resp.status_code == 200
+        assert "Opposing Counsel" in resp.text
+    finally:
+        with SessionLocal() as db:
+            from aaa_db.models import AuditRun, User  # noqa: F811
+
+            db.execute(delete(AuditRun).where(AuditRun.user_id == uid))
+            db.execute(delete(User).where(User.id == uid))
+            db.commit()
+
+
+def test_history_shows_mode_label() -> None:
+    """History page must show mode badge for each run."""
+    uid, email = _setup_report_user("HistModeUser")
+    try:
+        with SessionLocal() as db:
+            run = AuditRun(
+                user_id=uid,
+                source_type="text",
+                source_name="brief.docx",
+                citation_count=0,
+                audit_mode="opposing_review",
+            )
+            db.add(run)
+            db.commit()
+
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post(
+                "/login",
+                data={"email": email, "password": "password123"},
+                follow_redirects=True,
+            )
+            resp = c.get("/history")
+        assert resp.status_code == 200
+        assert "Opposing Counsel Review" in resp.text
+        assert "mode-badge-opposing" in resp.text
+    finally:
+        _teardown_report_user(uid)
+
+
+def test_history_detail_shows_mode_badge() -> None:
+    """History detail page must show mode badge in run metadata."""
+    uid, email = _setup_report_user("DetailModeUser")
+    try:
+        with SessionLocal() as db:
+            run = AuditRun(
+                user_id=uid,
+                source_type="text",
+                source_name="opposing_brief.docx",
+                citation_count=0,
+                audit_mode="opposing_review",
+            )
+            db.add(run)
+            db.commit()
+            run_id = run.id
+
+        with TestClient(app, raise_server_exceptions=True) as c:
+            c.post(
+                "/login",
+                data={"email": email, "password": "password123"},
+                follow_redirects=True,
+            )
+            resp = c.get(f"/history/{run_id}")
+        assert resp.status_code == 200
+        assert "mode-badge-opposing" in resp.text
+        assert "Opposing Counsel Review" in resp.text
+    finally:
+        _teardown_report_user(uid)
+
+
+def test_ai_memo_prompt_changes_for_opposing_review() -> None:
+    """_build_prompt includes opposing-counsel framing when audit_mode=opposing_review."""
+    from app.services.ai_risk_memo import _build_prompt
+
+    run_data = {
+        "audit_mode": "opposing_review",
+        "source_type": "docx",
+        "source_name": "opposing_brief.docx",
+        "verification_summary": {"VERIFIED": 5, "NOT_FOUND": 3},
+        "citation_count": 8,
+        "warnings_present": False,
+        "derived_verified_parent_count": 0,
+        "derived_risky_parent_count": 0,
+    }
+    prompt = _build_prompt(run_data)
+    assert "OPPOSING COUNSEL" in prompt or "opposing" in prompt.lower()
+    assert "vulnerabilit" in prompt.lower()
+
+
+def test_ai_memo_prompt_unchanged_for_self_review() -> None:
+    """_build_prompt uses standard framing when audit_mode=self_review."""
+    from app.services.ai_risk_memo import _build_prompt
+
+    run_data = {
+        "audit_mode": "self_review",
+        "source_type": "docx",
+        "source_name": "my_brief.docx",
+        "verification_summary": {"VERIFIED": 5},
+        "citation_count": 5,
+        "warnings_present": False,
+        "derived_verified_parent_count": 0,
+        "derived_risky_parent_count": 0,
+    }
+    prompt = _build_prompt(run_data)
+    assert "legal citation audit assistant" in prompt.lower()
+    assert "OPPOSING COUNSEL" not in prompt
+
+
+def test_pdf_report_title_changes_for_opposing_review() -> None:
+    """PDF report for opposing_review mode must use the opposing title."""
+    import io
+    from datetime import datetime, timezone
+
+    import fitz
+
+    from aaa_db.models import AuditRun as _AuditRun
+    from app.services.report_generator import generate_pdf_report
+
+    run = _AuditRun(
+        id=77,
+        source_type="docx",
+        source_name="opposing_brief.docx",
+        audit_mode="opposing_review",
+        citation_count=1,
+        verified_count=0,
+        not_found_count=1,
+        ambiguous_count=0,
+        derived_count=0,
+        statute_count=0,
+        statute_verified_count=0,
+        error_count=0,
+        unverified_no_token_count=0,
+        created_at=datetime.now(tz=timezone.utc),
+    )
+    run.citations = []
+    pdf_bytes = generate_pdf_report(run, user_run_number=1)
+
+    doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
+    full_text = "".join(page.get_text() for page in doc)
+    doc.close()
+
+    assert "Opposing Filing Citation Analysis Report" in full_text
+    assert "opposing party" in full_text.lower() or "opposing counsel" in full_text.lower()
+
+
+def test_pdf_report_title_unchanged_for_self_review() -> None:
+    """PDF report for self_review mode keeps the standard title."""
+    import io
+    from datetime import datetime, timezone
+
+    import fitz
+
+    from aaa_db.models import AuditRun as _AuditRun
+    from app.services.report_generator import generate_pdf_report
+
+    run = _AuditRun(
+        id=78,
+        source_type="text",
+        source_name=None,
+        audit_mode="self_review",
+        citation_count=0,
+        verified_count=0,
+        not_found_count=0,
+        ambiguous_count=0,
+        derived_count=0,
+        statute_count=0,
+        statute_verified_count=0,
+        error_count=0,
+        unverified_no_token_count=0,
+        created_at=datetime.now(tz=timezone.utc),
+    )
+    run.citations = []
+    pdf_bytes = generate_pdf_report(run, user_run_number=1)
+
+    doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
+    full_text = "".join(page.get_text() for page in doc)
+    doc.close()
+
+    assert "Citation Verification Report" in full_text
+    assert "Opposing Filing" not in full_text
+
+
+def test_backward_compat_audit_mode_defaults_to_self_review() -> None:
+    """AuditRun without explicit audit_mode defaults to 'self_review' in run_to_context."""
+    from app.routes.pages import run_to_context
+
+    run = AuditRun(
+        id=1,
+        source_type="text",
+        citation_count=0,
+    )
+    # Simulate an old run that predates the audit_mode column by deleting the attr
+    # (getattr fallback covers this case)
+    ctx = run_to_context(run)
+    assert ctx["audit_mode"] == "self_review"

@@ -7,6 +7,17 @@
   <p>Paste text or upload one or more legal documents to extract and verify citations.</p>
 
   <form action="/audit" method="post" enctype="multipart/form-data" id="audit-form">
+    <div class="audit-mode-toggle" role="group" aria-label="Audit mode">
+      <label class="audit-mode-option">
+        <input type="radio" name="audit_mode" value="self_review" checked id="mode-self">
+        <span>Review my document</span>
+      </label>
+      <label class="audit-mode-option">
+        <input type="radio" name="audit_mode" value="opposing_review" id="mode-opposing">
+        <span>Review opposing counsel's filing</span>
+      </label>
+    </div>
+
     <label for="pasted_text">Pasted text</label>
     <textarea id="pasted_text" name="pasted_text" rows="10" placeholder="Paste legal text here...">{{ pasted_text or "" }}</textarea>
     <div>
@@ -89,6 +100,14 @@
 
 {% for group in result_groups %}
 <div class="result-group" id="result-{{ loop.index }}" data-source="{{ group.source_name or 'pasted-text' }}">
+  {% if group.audit_mode == 'opposing_review' %}
+  <div class="opposing-mode-banner">
+    <span class="mode-badge mode-badge-opposing">Opposing Counsel Review</span>
+    Opposing Counsel Citation Analysis
+    {% if group.source_name %}: {{ group.source_name }}{% endif %}
+    ({{ group.source_type }})
+  </div>
+  {% else %}
   <h4>
     Results for
     {% if group.source_name %}
@@ -98,6 +117,7 @@
     {% endif %}
     ({{ group.source_type }})
   </h4>
+  {% endif %}
 
   {% if group.no_citations %}
   <div class="card" style="background:var(--surface-1);border:1px solid var(--border)">
@@ -208,9 +228,18 @@
         {% if citation.provenance %}<span class="provenance-badge {{ citation.provenance.css_class }}" title="{{ citation.provenance.description }}">{{ citation.provenance.label }}</span>{% endif %}
       </p>
       <p><strong>Detail:</strong> {{ citation.verification_detail or "(none)" }}</p>
+      {% if group.audit_mode == 'opposing_review' %}
+        {% if citation.verification_status == 'NOT_FOUND' %}
+        <p class="opposing-citation-note opposing-note-weak">&#9888; Citation not found — opposing counsel may be citing a non-existent or inaccessible authority.</p>
+        {% elif citation.verification_status == 'AMBIGUOUS' %}
+        <p class="opposing-citation-note opposing-note-caution">&#9888; Ambiguous citation — opposing counsel's reference is unclear and may not support their argument.</p>
+        {% elif citation.verification_status in ('VERIFIED', 'STATUTE_VERIFIED') %}
+        <p class="opposing-citation-note opposing-note-ok">&#10003; Citation verified — this authority exists.</p>
+        {% endif %}
+      {% endif %}
       {% if citation.verification_status == "NOT_FOUND" and citation.search_links %}
       <p class="help-verify-links">
-        <strong>Help me verify:</strong>
+        <strong>{% if group.audit_mode == 'opposing_review' %}Look up:{% else %}Help me verify:{% endif %}</strong>
         <a href="{{ citation.search_links.courtlistener }}" target="_blank" rel="noopener noreferrer">Search CourtListener</a>
         |
         <a href="{{ citation.search_links.google_scholar }}" target="_blank" rel="noopener noreferrer">Search Google Scholar</a>

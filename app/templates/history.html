@@ -5,8 +5,17 @@
 </div>
 
 {% if runs %}
+<div style="margin-bottom:1rem">
+  <label for="mode-filter" style="font-weight:600;margin-right:0.5rem">Filter by mode:</label>
+  <select id="mode-filter" style="padding:0.3rem 0.6rem;border:1px solid var(--border);border-radius:4px;background:var(--surface-0)">
+    <option value="ALL">All modes</option>
+    <option value="self_review">Self Review</option>
+    <option value="opposing_review">Opposing Counsel Review</option>
+  </select>
+</div>
+
 {% for run in runs %}
-<div class="history-item">
+<div class="history-item" data-mode="{{ run.audit_mode or 'self_review' }}">
   <div class="history-item-header">
     <div>
       <h3><a href="/history/{{ run.id }}">Run #{{ run.user_run_number }}</a></h3>
@@ -14,6 +23,11 @@
         <span>{{ run.created_at }}</span>
         <span>{{ run.source_type }}{% if run.source_name %} — {{ run.source_name }}{% endif %}</span>
         <span>{{ run.citation_count }} citation{{ "s" if run.citation_count != 1 else "" }}</span>
+        {% if run.audit_mode == 'opposing_review' %}
+        <span><span class="mode-badge mode-badge-opposing">Opposing Counsel Review</span></span>
+        {% else %}
+        <span><span class="mode-badge mode-badge-self">Self Review</span></span>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -31,4 +45,16 @@
 {% else %}
 <p class="empty-state">No audit runs have been saved yet. <a href="/">Run your first audit.</a></p>
 {% endif %}
+
+<script>
+  const modeFilter = document.getElementById("mode-filter");
+  if (modeFilter) {
+    modeFilter.addEventListener("change", () => {
+      const selected = modeFilter.value;
+      document.querySelectorAll(".history-item[data-mode]").forEach((item) => {
+        item.style.display = selected === "ALL" || item.getAttribute("data-mode") === selected ? "" : "none";
+      });
+    });
+  }
+</script>
 {% endblock %}
