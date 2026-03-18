@@ -214,7 +214,7 @@ def _make_styles() -> dict[str, ParagraphStyle]:
 
 # ── Risk assessment ───────────────────────────────────────────────────────────
 
-_RISKY_STATUSES = frozenset({"NOT_FOUND", "AMBIGUOUS", "ERROR"})
+_RISKY_STATUSES = frozenset({"NOT_FOUND", "AMBIGUOUS", "ERROR", "RATE_LIMITED"})
 
 
 def _risk_level(run: AuditRun) -> tuple[str, str, int, int, int, str | None]:

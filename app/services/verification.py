@@ -48,6 +48,103 @@ def _parse_volume_reporter(raw_text: str) -> tuple[str, str] | None:
 
 logger = logging.getLogger(__name__)
 
+# ── Rate-limit detail constant ────────────────────────────────────────────────
+_RATE_LIMITED_DETAIL = (
+    "Verification temporarily rate-limited. "
+    "Try again later or these will be verified on your next audit via the resolution cache."
+)
+
+# ── Parallel citation adjacency helpers ──────────────────────────────────────
+
+# Only punctuation/whitespace/dashes between two parallel citations.
+_PARALLEL_SEP_RE = re.compile(r"^[\s,.()\u2013\u2014\-]*$")
+
+
+def _is_parallel_adjacent(text_a: str, text_b: str, snippet: str) -> bool:
+    """Return True if text_a and text_b appear as adjacent parallel citations.
+
+    Conservative: requires the two texts to be separated by at most 12 characters
+    of punctuation/whitespace only (no alphabetic words) inside *snippet*.
+    """
+    lower = snippet.lower()
+    a_pos = lower.find(text_a.lower())
+    b_pos = lower.find(text_b.lower())
+    if a_pos == -1 or b_pos == -1:
+        return False
+    if a_pos < b_pos:
+        between = snippet[a_pos + len(text_a) : b_pos]
+    else:
+        between = snippet[b_pos + len(text_b) : a_pos]
+    return len(between) <= 12 and bool(_PARALLEL_SEP_RE.match(between))
+
+
+def _resolve_parallel_citations(citations: list[CitationResult]) -> int:
+    """Seventh pass: resolve NOT_FOUND/AMBIGUOUS citations adjacent to a VERIFIED one.
+
+    When two case-law citations appear side-by-side in the source text (separated
+    only by a comma and optional whitespace), the NOT_FOUND citation likely represents
+    the same case in a parallel reporter.  It inherits the VERIFIED citation's
+    cluster metadata.
+
+    Returns the count of citations resolved.
+    """
+    verified_with_snippet = [
+        c
+        for c in citations
+        if c.verification_status == "VERIFIED"
+        and c.snippet
+        and c.citation_type != "FullLawCitation"
+    ]
+    if not verified_with_snippet:
+        return 0
+
+    resolved = 0
+    for citation in citations:
+        if citation.verification_status not in ("NOT_FOUND", "AMBIGUOUS"):
+            continue
+        if citation.citation_type == "FullLawCitation":
+            continue
+        if not citation.snippet:
+            continue
+
+        partner: CitationResult | None = None
+        for v in verified_with_snippet:
+            # Check this citation's snippet for the verified citation's text
+            if _is_parallel_adjacent(citation.raw_text, v.raw_text, citation.snippet):
+                partner = v
+                break
+            # Also check the verified citation's snippet
+            if v.snippet and _is_parallel_adjacent(citation.raw_text, v.raw_text, v.snippet):
+                partner = v
+                break
+
+        if partner is None:
+            continue
+
+        case_name = ""
+        if partner.candidate_metadata:
+            case_name = partner.candidate_metadata[0].get("case_name") or ""
+
+        citation.verification_status = "VERIFIED"
+        citation.selected_cluster_id = partner.selected_cluster_id
+        citation.candidate_cluster_ids = partner.candidate_cluster_ids
+        citation.candidate_metadata = partner.candidate_metadata
+        citation.resolution_method = "parallel_cite"
+        detail = f"Identified as parallel reporter for {partner.raw_text!r}"
+        if case_name:
+            detail += f" ({case_name})"
+        citation.verification_detail = detail + "."
+        resolved += 1
+        logger.info(
+            "Parallel cite resolved: %r → cluster %s (partner: %r)",
+            citation.raw_text,
+            partner.selected_cluster_id,
+            partner.raw_text,
+        )
+
+    return resolved
+
+
 # ── Candidate deduplication ───────────────────────────────────────────────────
 
 
@@ -344,8 +441,8 @@ def map_courtlistener_result(result: dict[str, Any]) -> VerificationResponse:
 
     if status_code == 429:
         return VerificationResponse(
-            status="ERROR",
-            detail="CourtListener rate limit reached; please retry later.",
+            status="RATE_LIMITED",
+            detail=_RATE_LIMITED_DETAIL,
         )
 
     if isinstance(status_code, int):
@@ -410,8 +507,8 @@ class CourtListenerVerifier:
     def _handle_single_response(self, response: httpx.Response) -> VerificationResponse:
         if response.status_code == 429:
             return VerificationResponse(
-                status="ERROR",
-                detail="CourtListener rate limit reached; please retry later.",
+                status="RATE_LIMITED",
+                detail=_RATE_LIMITED_DETAIL,
             )
         if response.status_code == 404:
             return VerificationResponse(
@@ -502,10 +599,14 @@ class CourtListenerVerifier:
         self, response: httpx.Response, expected_count: int
     ) -> list[VerificationResponse]:
         if response.status_code == 429:
+            logger.warning(
+                "CourtListener rate limit hit (HTTP 429) — marking %d citation(s) as RATE_LIMITED",
+                expected_count,
+            )
             return [
                 VerificationResponse(
-                    status="ERROR",
-                    detail="CourtListener rate limit reached; please retry later.",
+                    status="RATE_LIMITED",
+                    detail=_RATE_LIMITED_DETAIL,
                 )
             ] * expected_count
         if response.status_code >= 400:
@@ -576,21 +677,39 @@ def _verify_single(
 def _verify_batched(
     verifiable: list[CitationResult],
     verifier: Any,
+    batch_delay_seconds: float = 0.5,
 ) -> None:
-    """Verify citations in batches.  Falls back to single mode per-batch on failure."""
+    """Verify citations in batches.  Falls back to single mode per-batch on failure.
+
+    *batch_delay_seconds* — seconds to sleep between batches when there are
+    multiple batches, to avoid hitting CourtListener's rate limit.  Set to 0.0
+    to disable the delay (e.g. in tests).
+    """
     batches = _split_into_batches(verifiable)
-    logger.debug(
-        "Verification: %d citation(s) split into %d batch(es)", len(verifiable), len(batches)
-    )
+    total = len(verifiable)
+    completed = 0
+    num_batches = len(batches)
+    logger.info("Verification: %d citation(s) split into %d batch(es)", total, num_batches)
 
     for batch_idx, batch in enumerate(batches):
+        if batch_idx > 0 and num_batches > 1 and batch_delay_seconds > 0:
+            time.sleep(batch_delay_seconds)
+
+        logger.info(
+            "Verifying citations: %d/%d complete (batch %d/%d)",
+            completed,
+            total,
+            batch_idx + 1,
+            num_batches,
+        )
+
         try:
             results = verifier.verify_batch(batch)
         except Exception:
             logger.warning(
                 "Batch %d/%d failed, falling back to single-citation mode (%d citations)",
                 batch_idx + 1,
-                len(batches),
+                num_batches,
                 len(batch),
             )
             for citation in batch:
@@ -608,6 +727,7 @@ def _verify_batched(
                 citation.verification_detail = result.detail
                 citation.candidate_cluster_ids = result.candidate_cluster_ids
                 citation.candidate_metadata = result.candidate_metadata
+            completed += len(batch)
             continue
 
         for citation, result in zip(batch, results, strict=False):
@@ -615,6 +735,10 @@ def _verify_batched(
             citation.verification_detail = result.detail
             citation.candidate_cluster_ids = result.candidate_cluster_ids
             citation.candidate_metadata = result.candidate_metadata
+
+        completed += len(batch)
+
+    logger.info("Verification: %d/%d complete", completed, total)
 
 
 def verify_citations(
@@ -1113,6 +1237,14 @@ def verify_citations(
 
     if short_cite_resolved:
         logger.info("Short-cite match resolved %d citation(s)", short_cite_resolved)
+
+    # ── Seventh pass: parallel citation resolution ────────────────────────────
+    # When a NOT_FOUND citation appears immediately adjacent to a VERIFIED
+    # citation in the source text (e.g. "283 Va. 474, 722 S.E.2d 272"), it
+    # is likely a parallel reporter citation for the same case.
+    parallel_resolved = _resolve_parallel_citations(citations)
+    if parallel_resolved:
+        logger.info("Parallel citation resolution: %d citation(s) resolved", parallel_resolved)
 
     _postprocess_citations(citations)
 

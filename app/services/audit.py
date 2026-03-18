@@ -96,12 +96,35 @@ _USC_ALTERNATE_RE = re.compile(
     re.VERBOSE | re.IGNORECASE,
 )
 
+# Pattern 4 — U.S.C. dotted form WITHOUT § symbol
+#   "35 U.S.C. 154(a)(1)"   "28 U.S.C. 1257(a)"   "35 U.S.C. 1 et seq."
+#   "42 U.S.C. 1983"        "17 U.S.C. 101"
+#
+# The negative lookahead (?!\s*,?\s*(?:§|Sec\.|Section)) ensures this does NOT
+# match citations already handled by eyecite or _DOTTED_ABBREV_RE (which require §).
+_USC_NO_SYMBOL_RE = re.compile(
+    r"""
+    (?:Title\s+)?                              # optional "Title " prefix
+    \d+                                        # title number
+    \s+
+    U\.S\.C\.                                  # dotted "U.S.C." (with periods)
+    (?:\s+Ann\.)?                              # optional " Ann."
+    (?!\s*,?\s*(?:§|Sec\.|Section))            # NOT followed by §/Sec./Section
+    \s+
+    \d[\dA-Za-z]*                              # section number: 154, 1983, 101a
+    (?:\([^)]{0,30}\))*                        # optional repeated subsections: (a)(1)
+    (?:\s+et\s+seq\.)?                         # optional "et seq."
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
 # Central extensible list — add new state patterns here.
 # Each entry is a (label, compiled_pattern) tuple.
 _SUPPLEMENTAL_STATUTE_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("dotted_abbrev", _DOTTED_ABBREV_RE),
     ("va_code", _VA_CODE_RE),
     ("usc_alternate", _USC_ALTERNATE_RE),
+    ("usc_no_symbol", _USC_NO_SYMBOL_RE),
 ]
 
 

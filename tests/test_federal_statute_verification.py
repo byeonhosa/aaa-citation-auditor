@@ -585,3 +585,24 @@ def test_virginia_parser_rejects_usc_no_periods():
 
 def test_virginia_parser_rejects_verbose_usc():
     assert parse_virginia_section("Title 42, United States Code, Section 1983") is None
+
+
+def test_usc_subsection_reference_verified():
+    """28 U.S.C. § 1257(a) should verify against section 1257 (subsection stripped)."""
+    text = "Review under 28 U.S.C. § 1257(a)."
+    citations, _ = extract_citations(text)
+    # Ensure exactly one citation detected
+    assert any("1257" in c.raw_text for c in citations), "28 U.S.C. § 1257(a) not detected"
+
+    fed_verifier = _MockFederalVerifier({("28", "1257"): ("STATUTE_VERIFIED", "Certiorari")})
+    result = verify_citations(
+        citations,
+        courtlistener_token=None,
+        verification_base_url="https://www.courtlistener.com/api/rest/v4/citation-lookup/",
+        federal_statute_verifier=fed_verifier,
+        govinfo_api_key="TEST_KEY",
+    )
+    hits = [c for c in result if "1257" in c.raw_text]
+    assert hits, "No 1257 citation in result"
+    assert hits[0].verification_status == "STATUTE_VERIFIED"
+    assert "1257" in hits[0].verification_detail
