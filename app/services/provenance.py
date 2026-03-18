@@ -85,6 +85,11 @@ _VERIFIED_METHOD_MAP: dict[str | None, tuple[str, str, str]] = {
         "Matched from the local CourtListener citation index (bulk data).",
         "provenance-direct",
     ),
+    "supra_ref": (
+        "Derived (supra reference)",
+        "Supra back-reference — refers to a case cited earlier in the document.",
+        "provenance-derived",
+    ),
 }
 
 # ── Non-VERIFIED status map ───────────────────────────────────────────────────

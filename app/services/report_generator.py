@@ -8,6 +8,7 @@ a malpractice insurer as evidence of due diligence.
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any
@@ -216,17 +217,19 @@ def _make_styles() -> dict[str, ParagraphStyle]:
 _RISKY_STATUSES = frozenset({"NOT_FOUND", "AMBIGUOUS", "ERROR"})
 
 
-def _risk_level(run: AuditRun) -> tuple[str, str, int, int, int]:
-    """Return (level, description, effectively_verified, genuinely_unverified, derived_vp).
+def _risk_level(run: AuditRun) -> tuple[str, str, int, int, int, str | None]:
+    """Return (level, description, effectively_verified, genuinely_unverified, derived_vp,
+    duplicate_note).
 
     Uses the same logic as the AI memo: DERIVED citations whose parent citation
     is VERIFIED are counted as effectively verified, not as risky.  Plain
     NOT_FOUND / AMBIGUOUS / ERROR citations are genuinely unverified.
     STATUTE_DETECTED citations are informational and do not affect risk.
+    Unverified citations are deduplicated by normalized text before risk calculation.
     """
     total = run.citation_count
     if total == 0:
-        return ("LOW", "No citations were found in this document.", 0, 0, 0)
+        return ("LOW", "No citations were found in this document.", 0, 0, 0, None)
 
     # Build a lookup of raw_text → status for non-DERIVED citations
     parent_status: dict[str, str] = {
@@ -247,16 +250,33 @@ def _risk_level(run: AuditRun) -> tuple[str, str, int, int, int]:
             derived_risky_parent += 1
 
     effectively_verified = (
-        (run.verified_count or 0)
-        + (run.statute_verified_count or 0)
-        + derived_verified_parent
+        (run.verified_count or 0) + (run.statute_verified_count or 0) + derived_verified_parent
     )
-    genuinely_unverified = (
-        (run.not_found_count or 0)
-        + (run.ambiguous_count or 0)
-        + (run.error_count or 0)
-        + derived_risky_parent
+
+    # Deduplicate risky citations by normalized_text (or raw_text) so repeated
+    # occurrences of the same unverified citation don't inflate the risk score.
+    _seen_risky: set[str] = set()
+    for c in run.citations:
+        if (c.verification_status or "") in _RISKY_STATUSES:
+            key = (getattr(c, "normalized_text", None) or c.raw_text or "").strip()
+            if key:
+                _seen_risky.add(key)
+    unique_risky_from_status = len(_seen_risky)
+    raw_risky_count = (
+        (run.not_found_count or 0) + (run.ambiguous_count or 0) + (run.error_count or 0)
     )
+    # If no citations were loaded (e.g. lazy-load skipped), fall back to aggregate counts
+    if unique_risky_from_status == 0 and not run.citations:
+        unique_risky_from_status = raw_risky_count
+    dup_count = raw_risky_count - unique_risky_from_status
+    duplicate_note: str | None = (
+        f"Note: {dup_count} citation(s) appear multiple times; "
+        f"risk assessment is based on {unique_risky_from_status} unique unverified citation(s)."
+        if dup_count > 0
+        else None
+    )
+
+    genuinely_unverified = unique_risky_from_status + derived_risky_parent
     statute_detected = run.statute_count or 0
 
     statute_note = (
@@ -278,6 +298,7 @@ def _risk_level(run: AuditRun) -> tuple[str, str, int, int, int]:
             effectively_verified,
             genuinely_unverified,
             derived_verified_parent,
+            duplicate_note,
         )
 
     ratio = genuinely_unverified / total
@@ -294,6 +315,7 @@ def _risk_level(run: AuditRun) -> tuple[str, str, int, int, int]:
             effectively_verified,
             genuinely_unverified,
             derived_verified_parent,
+            duplicate_note,
         )
     if ratio <= 0.15:
         return (
@@ -303,6 +325,7 @@ def _risk_level(run: AuditRun) -> tuple[str, str, int, int, int]:
             effectively_verified,
             genuinely_unverified,
             derived_verified_parent,
+            duplicate_note,
         )
     return (
         "HIGH",
@@ -311,6 +334,7 @@ def _risk_level(run: AuditRun) -> tuple[str, str, int, int, int]:
         effectively_verified,
         genuinely_unverified,
         derived_verified_parent,
+        duplicate_note,
     )
 
 
@@ -441,12 +465,7 @@ def generate_pdf_report(
             "Filing analyzed:" if is_opposing else "Document audited:",
             f"{source_label} ({run.source_type})",
         ),
-        (
-            "Report ID:",
-            f"Run #{user_run_number or run.id}  (internal id: {run.id}"
-            + (f", user: {user_email}" if user_email else "")
-            + ")",
-        ),
+        ("Report ID:", f"Run #{user_run_number or run.id}"),
         ("Mode:", "Opposing Counsel Review" if is_opposing else "Self Review"),
         ("Total citations:", str(run.citation_count)),
     ]
@@ -489,7 +508,7 @@ def generate_pdf_report(
             )
         )
 
-    risk, risk_desc, _eff_verified, _genuinely_unverified, _derived_vp = _risk_level(run)
+    risk, risk_desc, _eff_verified, _genuinely_unverified, _derived_vp, dup_note = _risk_level(run)
     risk_label = {"LOW": "Low Risk", "MEDIUM": "Medium Risk", "HIGH": "High Risk"}[risk]
     risk_prefix = (
         "<b>Citation Vulnerability Assessment:</b>"
@@ -503,6 +522,8 @@ def generate_pdf_report(
             styles["body"],
         )
     )
+    if dup_note:
+        story.append(Paragraph(_esc(dup_note), styles["body_small"]))
     story.append(Spacer(1, 6))
 
     # Summary metrics table
@@ -630,7 +651,7 @@ def generate_pdf_report(
             bg, _fg, display_status = _STATUS_STYLE.get(status, (_LIGHT_GRAY, _TEXT_2, status))
             info = get_provenance(c.verification_status, c.resolution_method)
             snippet = (c.snippet or "")[:100] + ("…" if len(c.snippet or "") > 100 else "")
-            detail = (c.verification_detail or "")[:80]
+            detail = _clean_detail_for_report(c.verification_detail or "")
 
             rows.append(
                 [
@@ -704,7 +725,7 @@ def generate_pdf_report(
 
     fingerprint = _report_fingerprint(run)
     cert_rows = [
-        ("Report ID:", f"Run #{user_run_number or run.id}  (internal id: {run.id})"),
+        ("Report ID:", f"Run #{user_run_number or run.id}"),
         ("Generated:", generated_dt),
         (
             "Verification data fingerprint:",
@@ -739,6 +760,42 @@ def generate_pdf_report(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+# Matches parenthetical cluster references: (cluster NNN), (clusters: N),
+# (... cluster NNN ...) — i.e. any parenthetical containing a cluster reference.
+_CLUSTER_PAT = re.compile(
+    r"\s*\((?:clusters?:?\s*\d+|[^)]*,?\s*cluster\s+\d+[^)]*)\)",
+    re.IGNORECASE,
+)
+
+# Detail prefixes added by the verification pipeline that are not meaningful
+# to end-users; we strip these and keep only the case name that follows.
+_DETAIL_PREFIXES = (
+    "Matched in local citation index",
+    "Resolved from cache",
+    "Auto-resolved by heuristic",
+    "Resolved automatically (duplicate candidates removed)",
+    "Resolved automatically",
+    "CourtListener matched citation",
+)
+
+
+def _clean_detail_for_report(detail: str) -> str:
+    """Strip internal references (cluster IDs, DB prefixes) from verification detail.
+
+    For PDF output only — keeps cluster IDs intact in the web UI.
+    Returns the case name when available, otherwise a cleaned short description.
+    """
+    if not detail:
+        return ""
+    # Remove cluster ID parentheticals
+    cleaned = _CLUSTER_PAT.sub("", detail).strip().rstrip(".")
+    # For "Prefix. Case Name." style details, return just the case name
+    for prefix in _DETAIL_PREFIXES:
+        if cleaned.lower().startswith(prefix.lower()):
+            rest = cleaned[len(prefix) :].lstrip(". ")
+            return rest.rstrip(".") if rest else ""
+    return cleaned[:80]
 
 
 def _esc(text: str) -> str:

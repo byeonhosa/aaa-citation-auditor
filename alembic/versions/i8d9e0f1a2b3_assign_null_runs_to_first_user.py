@@ -13,6 +13,7 @@ Create Date: 2026-03-16 00:00:00.000000
 from typing import Sequence, Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "i8d9e0f1a2b3"
@@ -29,9 +30,7 @@ def upgrade() -> None:
     if row is None:
         return
 
-    result = conn.execute(
-        sa.text("UPDATE audit_runs SET user_id = 1 WHERE user_id IS NULL")
-    )
+    result = conn.execute(sa.text("UPDATE audit_runs SET user_id = 1 WHERE user_id IS NULL"))
     updated = result.rowcount
     if updated:
         import logging

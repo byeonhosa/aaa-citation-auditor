@@ -135,6 +135,53 @@ def is_derived_citation(citation: CitationResult) -> bool:
     )
 
 
+def _update_derived_details(citations: list[CitationResult]) -> None:
+    """Post-processing: update DERIVED citation detail text based on parent verification status.
+
+    Called after all verification passes so each parent's final status is known.
+    """
+    parent_status: dict[str, str] = {
+        c.raw_text: (c.verification_status or "")
+        for c in citations
+        if c.raw_text and c.verification_status != "DERIVED"
+    }
+    for c in citations:
+        if c.verification_status != "DERIVED":
+            continue
+        parent_raw = c.resolved_from
+        if not parent_raw:
+            c.verification_detail = "Derived citation — parent citation not identified."
+            continue
+        pstatus = parent_status.get(parent_raw, "")
+        if pstatus == "VERIFIED":
+            c.verification_detail = f"Derived from {parent_raw} — parent citation verified."
+        elif pstatus == "NOT_FOUND":
+            c.verification_detail = (
+                f"Derived from {parent_raw} — parent citation could not be verified."
+            )
+        elif pstatus == "AMBIGUOUS":
+            c.verification_detail = f"Derived from {parent_raw} — parent citation is ambiguous."
+        else:
+            c.verification_detail = f"Derived from {parent_raw} — parent status unknown."
+
+
+def _mark_supra_refs(citations: list[CitationResult]) -> None:
+    """Tag verified SupraCitation references with resolution_method='supra_ref'.
+
+    This causes the provenance label to read "Derived (supra reference)" rather than
+    "Direct Match", which is misleading for a back-reference.
+    """
+    for c in citations:
+        if c.citation_type == "SupraCitation" and c.verification_status == "VERIFIED":
+            c.resolution_method = "supra_ref"
+
+
+def _postprocess_citations(citations: list[CitationResult]) -> None:
+    """Run all post-verification updates that require the full citation list."""
+    _update_derived_details(citations)
+    _mark_supra_refs(citations)
+
+
 def _lookup_text_for(citation: CitationResult) -> str:
     """Return the text to send to CourtListener for a single citation."""
     return citation.normalized_text or citation.raw_text or ""
@@ -617,16 +664,16 @@ def verify_citations(
         if is_statute_citation(citation):
             citation.verification_status = "STATUTE_DETECTED"
             citation.verification_detail = (
-                "Statute citation detected — not verified (case law verification only)."
+                "Statute citation detected — verification not available for this jurisdiction yet."
             )
             statute_count += 1
             continue
 
         if is_derived_citation(citation):
             citation.verification_status = "DERIVED"
-            parent = citation.resolved_from or "unknown prior citation"
+            # Detail will be updated in the post-processing pass once all parents are verified.
             citation.verification_detail = (
-                f"Derived from prior citation ({parent}); not independently verified."
+                f"Derived from {citation.resolved_from or 'unknown prior citation'}."
             )
             derived_count += 1
             continue
@@ -750,9 +797,8 @@ def verify_citations(
             elif status == "STATUTE_NOT_FOUND":
                 # Keep STATUTE_DETECTED; update detail to reflect the lookup result
                 citation.verification_detail = (
-                    f"Virginia Code § {section_number} was not found in the"
-                    " Code of Virginia. The section may have been repealed or"
-                    " the citation may contain a typo."
+                    f"Virginia Code § {section_number} — could not be verified"
+                    " against the Virginia LIS database."
                 )
                 va_not_found += 1
             # STATUTE_ERROR → leave verification_detail unchanged
@@ -811,9 +857,8 @@ def verify_citations(
                 fed_verified += 1
             elif status == "STATUTE_NOT_FOUND":
                 citation.verification_detail = (
-                    f"{title} U.S.C. § {section} was not found in the United States"
-                    " Code. The section may have been repealed or the citation may"
-                    " contain a typo."
+                    f"{title} U.S.C. § {section} — could not be verified"
+                    " against the GovInfo database."
                 )
                 fed_not_found += 1
             # STATUTE_ERROR → leave verification_detail unchanged
@@ -826,6 +871,7 @@ def verify_citations(
             )
 
     if not verifiable or not courtlistener_token:
+        _postprocess_citations(citations)
         return citations
 
     # ── Build verifier ──
@@ -1067,6 +1113,8 @@ def verify_citations(
 
     if short_cite_resolved:
         logger.info("Short-cite match resolved %d citation(s)", short_cite_resolved)
+
+    _postprocess_citations(citations)
 
     summary = summarize_verification_statuses(citations)
     logger.info("Verification complete: %s", summary)

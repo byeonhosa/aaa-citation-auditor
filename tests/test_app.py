@@ -479,7 +479,7 @@ def test_verify_citations_marks_id_as_derived() -> None:
     )
 
     assert verified[0].verification_status == "DERIVED"
-    assert "Derived from prior citation" in (verified[0].verification_detail or "")
+    assert "Derived" in (verified[0].verification_detail or "")
 
 
 def test_dashboard_post_renders_derived_status(monkeypatch) -> None:
@@ -2499,8 +2499,7 @@ def test_post_audit_citation_cap_warning_appears_in_results(monkeypatch) -> None
     )
 
     assert response.status_code == 200
-    assert "Only the first 1 were processed" in response.text
-    assert "splitting the document" in response.text
+    assert "Processing the first 1" in response.text
 
 
 def test_post_audit_citation_cap_still_processes_retained_citations(monkeypatch) -> None:
@@ -2524,7 +2523,7 @@ def test_settings_guardrail_defaults() -> None:
     s = Settings(_env_file=None)
     assert s.max_file_size_mb == 50
     assert s.max_files_per_batch == 10
-    assert s.max_citations_per_run == 500
+    assert s.max_citations_per_run == 5000
 
 
 # -- Logging tests --------------------------------------------------------
@@ -5363,7 +5362,7 @@ def test_report_generator_risk_assessment_derived_verified_parents() -> None:
         for i in range(11)
     ]
     run.citations = [parent] + derived_citations
-    level, desc, eff_verified, genuinely_unverified, derived_vp = _risk_level(run)
+    level, desc, eff_verified, genuinely_unverified, derived_vp, _ = _risk_level(run)
     assert level == "LOW"
     assert genuinely_unverified == 0
     assert derived_vp == 11

@@ -8,6 +8,7 @@ Create Date: 2026-03-16 00:00:00.000000
 from typing import Sequence, Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "j9e0f1a2b3c4"
@@ -21,9 +22,7 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column("trust_tier", sa.String(32), nullable=False, server_default="algorithmic")
         )
-        batch_op.add_column(
-            sa.Column("cache_user_id", sa.Integer(), nullable=True)
-        )
+        batch_op.add_column(sa.Column("cache_user_id", sa.Integer(), nullable=True))
         batch_op.add_column(
             sa.Column("last_reverified_at", sa.DateTime(timezone=True), nullable=True)
         )

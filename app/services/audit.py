@@ -367,9 +367,8 @@ def apply_citation_cap(
     if len(citations) <= limit:
         return citations, None
     warning = (
-        f"This document contains {len(citations)} citations. "
-        f"Only the first {limit} were processed. "
-        "Consider splitting the document into smaller sections."
+        f"Large document: {len(citations)} citations found. "
+        f"Processing the first {limit}. This may take a few minutes."
     )
     return citations[:limit], warning
 

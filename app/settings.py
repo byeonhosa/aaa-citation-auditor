@@ -45,7 +45,7 @@ class Settings(BaseSettings):
 
     max_file_size_mb: int = 50
     max_files_per_batch: int = 10
-    max_citations_per_run: int = 500
+    max_citations_per_run: int = 5000
 
     log_level: str = "INFO"
 

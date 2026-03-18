@@ -108,15 +108,15 @@ def _build_prompt(run_data: dict[str, Any]) -> str:
         "  NOT_FOUND does NOT mean a citation is fabricated or invalid.",
         "  It means FinalVerify's open databases (CourtListener, Virginia Code, U.S. Code) "
         "could not independently verify it.",
-        "  Many legitimate citations use proprietary reporter systems (LEXIS, Westlaw, ALR, Am. "
-        "Jur.) that are not indexed in open databases and will always return NOT_FOUND.",
+        "  Many legitimate citations use reporter systems not indexed in open databases and will "
+        "always return NOT_FOUND.",
         "  Do NOT recommend challenging the validity of a citation solely because it is NOT_FOUND.",
-        "  DO recommend: manual verification via the provided search links, Westlaw, Lexis, or "
-        "the court's PACER system before drawing any conclusions.",
+        "  DO recommend: manual verification using the free search links provided — CourtListener "
+        "(courtlistener.com), Google Scholar (scholar.google.com), or PACER (pacer.gov) for "
+        "federal cases — before drawing any conclusions.",
         "  For opposing_review mode: before suggesting any challenge, instruct the attorney to "
-        "independently verify through Westlaw, Lexis, or PACER. Only if the citation cannot be "
-        "found through any source should they consider requesting clarification from opposing "
-        "counsel.",
+        "independently verify using the free tools above. Only if the citation cannot be found "
+        "through any source should they consider requesting clarification from opposing counsel.",
         "",
         "IMPORTANT — AMBIGUOUS citations:",
         "  AMBIGUOUS means the citation matched multiple possible cases in the database.",
@@ -167,9 +167,13 @@ _BASE_SYSTEM_CONTENT = (
     "only flag them as a risk when their parent is NOT_FOUND, AMBIGUOUS, or ERROR. "
     "IMPORTANT: NOT_FOUND does not mean a citation is fabricated or invalid. "
     "It means FinalVerify's open databases could not verify it. "
-    "Many legitimate citations use proprietary reporter systems "
-    "(LEXIS, Westlaw) not indexed in open databases. "
-    "Always recommend manual verification before concluding a citation is problematic."
+    "Many legitimate citations use reporter systems not indexed in open databases. "
+    "Always recommend manual verification using free tools before concluding a citation "
+    "is problematic. "
+    "IMPORTANT: Never recommend Westlaw, LexisNexis, or any other paid legal research "
+    "service. Our users specifically use FinalVerify because they do not have access to "
+    "those tools. Always recommend free alternatives: CourtListener (courtlistener.com), "
+    "Google Scholar (scholar.google.com), and PACER (pacer.gov) for federal cases."
 )
 
 _OPPOSING_SYSTEM_SUFFIX = (

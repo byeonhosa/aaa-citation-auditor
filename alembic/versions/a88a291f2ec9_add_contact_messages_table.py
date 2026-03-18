@@ -5,15 +5,16 @@ Revises: l1g2h3i4j5
 Create Date: 2026-03-17 11:33:17.815904
 
 """
+
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = 'a88a291f2ec9'
-down_revision: Union[str, Sequence[str], None] = 'l1g2h3i4j5'
+revision: str = "a88a291f2ec9"
+down_revision: Union[str, Sequence[str], None] = "l1g2h3i4j5"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

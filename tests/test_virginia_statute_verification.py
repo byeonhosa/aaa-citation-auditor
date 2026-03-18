@@ -275,7 +275,7 @@ class TestVerifyCitationsPipelineVA:
             **_base_verify_kwargs(),
         )
         assert result[0].verification_status == "STATUTE_DETECTED"
-        assert "not found" in result[0].verification_detail.lower()
+        assert "could not be verified" in result[0].verification_detail.lower()
 
     def test_api_error_keeps_statute_detected(self):
         citations = [_make_citation("Va. Code § 15.2-3400")]
@@ -288,7 +288,7 @@ class TestVerifyCitationsPipelineVA:
         )
         # Error must not downgrade — detail unchanged from default
         assert result[0].verification_status == "STATUTE_DETECTED"
-        assert "not verified" in result[0].verification_detail.lower()
+        assert "not available" in result[0].verification_detail.lower()
 
     def test_non_virginia_statute_not_sent_to_va_api(self):
         citations = [_make_citation("Cal. Penal Code § 459")]

@@ -379,7 +379,7 @@ def test_federal_citation_not_found_stays_statute_detected():
     hits = [c for c in result if "99999" in c.raw_text]
     assert hits, "No 99999 citation in result"
     assert hits[0].verification_status == "STATUTE_DETECTED"
-    assert "not found" in (hits[0].verification_detail or "").lower()
+    assert "could not be verified" in (hits[0].verification_detail or "").lower()
 
 
 def test_no_api_key_stays_statute_detected():
