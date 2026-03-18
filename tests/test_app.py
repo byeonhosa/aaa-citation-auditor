@@ -1828,8 +1828,8 @@ def test_courtlistener_verifier_timeout_exhausted_returns_error(monkeypatch) -> 
     assert "timed out" in result.detail.lower()
 
 
-def test_courtlistener_verifier_all_429s_returns_error(monkeypatch) -> None:
-    """All retries exhausted on 429 should return rate-limit ERROR."""
+def test_courtlistener_verifier_all_429s_returns_rate_limited(monkeypatch) -> None:
+    """All retries exhausted on 429 should return RATE_LIMITED status."""
     from app.services.verification import CourtListenerVerifier
 
     responses = [
@@ -1856,8 +1856,8 @@ def test_courtlistener_verifier_all_429s_returns_error(monkeypatch) -> None:
         ),
     )
 
-    assert result.status == "ERROR"
-    assert "rate limit" in result.detail.lower()
+    assert result.status == "RATE_LIMITED"
+    assert "rate" in result.detail.lower()
 
 
 def test_ai_memo_timeout_returns_unavailable(monkeypatch) -> None:

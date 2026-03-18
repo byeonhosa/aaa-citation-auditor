@@ -90,6 +90,11 @@ _VERIFIED_METHOD_MAP: dict[str | None, tuple[str, str, str]] = {
         "Supra back-reference — refers to a case cited earlier in the document.",
         "provenance-derived",
     ),
+    "parallel_cite": (
+        "Parallel Citation Match",
+        "Identified as a parallel reporter citation for an adjacent verified case.",
+        "provenance-parallel",
+    ),
 }
 
 # ── Non-VERIFIED status map ───────────────────────────────────────────────────
@@ -133,6 +138,13 @@ _STATUS_MAP: dict[str, tuple[str, str, str]] = {
         "No CourtListener API token is configured."
         " Add a token in Settings to enable case law verification.",
         "provenance-unverified",
+    ),
+    "RATE_LIMITED": (
+        "Rate Limited — Retry Later",
+        "CourtListener's rate limit was reached during this audit. "
+        "Re-run the audit to verify this citation"
+        " (it will be resolved from cache on subsequent runs).",
+        "provenance-rate-limited",
     ),
 }
 
@@ -307,5 +319,15 @@ PROVENANCE_HELP: list[tuple[str, str]] = [
         " 'algorithmic' (heuristic, search fallback, etc.), or 'user_submitted' (manually"
         " selected by a specific user). User-submitted entries are only auto-applied for the"
         " user who created them; other users see them only as suggestions.",
+    ),
+    (
+        "Parallel Citation Match",
+        "This citation appeared immediately adjacent to a verified citation in the same document, "
+        "indicating it is a parallel reporter citation for the same case.",
+    ),
+    (
+        "Rate Limited — Retry Later",
+        "CourtListener's rate limit was reached while processing this document. "
+        "Re-run the audit to verify — the result will be cached and resolved instantly.",
     ),
 ]

@@ -206,12 +206,16 @@ _USC_CITATION_RE = re.compile(
         Title\s+(\d+)\s*,?\s*                  # group 2: title (verbose form)
         United\s+States\s+Code\s*,?\s*
     )
-    [\s,]*                                     # optional whitespace/comma between prefix and §
-    (?:§|Sec\.|Section)\s*                     # section indicator
+    (?:
+        [\s,]*(?:§|Sec\.|Section)\s*           # with explicit section marker
+        |
+        \s+(?=\d)                              # OR bare whitespace before a digit
+    )
     (                                          # group 3: raw section number
-        \d[\dA-Za-z]*                          # e.g. 1983, 1234a
+        \d[\dA-Za-z]*                          # e.g. 1983, 154, 1234a
         (?:\([^)]*\))?                         # optional parenthetical sub: (a)
     )
+    (?:\s+et\s+seq\.)?                         # optional "et seq."
     """,
     re.VERBOSE | re.IGNORECASE,
 )
@@ -272,6 +276,12 @@ def verify_federal_section(
         "offsetMark": "*",
         "api_key": api_key,
     }
+    logger.debug(
+        "GovInfo lookup: title=%s section=%s (api_key present: %s)",
+        title,
+        section,
+        bool(api_key),
+    )
     try:
         if _client is not None:
             response = _client.get(_GOVINFO_SEARCH_URL, params=params)
@@ -300,6 +310,13 @@ def verify_federal_section(
 
         data = response.json()
         count = data.get("count", 0)
+        logger.debug(
+            "GovInfo response for %s U.S.C. § %s: count=%s, status=%d",
+            title,
+            section,
+            count,
+            response.status_code,
+        )
         if not count:
             logger.debug("GovInfo: %s U.S.C. § %s not found (count=0)", title, section)
             return "STATUTE_NOT_FOUND", None
