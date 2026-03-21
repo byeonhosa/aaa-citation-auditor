@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from contextlib import contextmanager
 from time import perf_counter
 from typing import Any
@@ -155,6 +156,182 @@ def _record_event_safely(**kwargs) -> None:  # noqa: ANN003
         logger.exception("Failed to record telemetry event.")
 
 
+# ── Bluebook citation context extraction ─────────────────────────────────────
+
+# Matches a parenthetical containing a 4-digit year, e.g. (1954), (4th Cir. 2001)
+_YEAR_PAREN_RE = re.compile(r"\([^()]*\d{4}[^()]*\)")
+
+# Matches a parallel reporter citation, e.g. "578 S.E.2d 781"
+_PARALLEL_CITE_RE = re.compile(r"^\d+\s+[\w.]+\s+\d+$")
+
+# Citation types that are back-references — context is the raw text itself
+_BACK_REF_TYPES = {"IdCitation", "SupraCitation"}
+
+# Words that signal a new sentence/citation context, not part of a party name
+_CITATION_SIGNALS = frozenset(
+    {
+        "see",
+        "cf.",
+        "but",
+        "also",
+        "compare",
+        "accord",
+        "contra",
+        "e.g.",
+        "i.e.",
+        "citing",
+        "cited",
+        "held",
+        "said",
+        "ruling",
+        "finding",
+        "noting",
+    }
+)
+
+# Lowercase words that may appear inside a party name (e.g. "City of Charleston")
+_NAME_PREPOSITIONS = frozenset({"of", "and", "de", "la", "le", "van", "von", "&"})
+
+
+def _plaintiff_from_before_v(text: str) -> str | None:
+    """Walk *text* backwards word-by-word to extract the plaintiff party name.
+
+    Collects words that look like part of a proper name (title-case or a known
+    name-preposition) and stops at sentence words, digits, or citation signals.
+    Strips leading prepositions from the collected words before returning.
+    """
+    words = text.rstrip().split()
+    if not words:
+        return None
+
+    result: list[str] = []
+    for word in reversed(words):
+        clean = word.rstrip(",.;:!?\"'")
+        if not clean:
+            continue
+        if clean.lower() in _CITATION_SIGNALS:
+            break
+        if clean[0].isupper() or clean.lower() in _NAME_PREPOSITIONS:
+            result.insert(0, clean)
+            if len(result) >= 6:
+                break
+        else:
+            # Lowercase word that is not a recognised preposition — sentence text
+            break
+
+    # Strip leading prepositions that don't belong at the start of a party name
+    while result and result[0].lower() in _NAME_PREPOSITIONS:
+        result.pop(0)
+
+    return " ".join(result) if result else None
+
+
+def _case_name_from_prefix(text: str) -> str | None:
+    """Extract a case name from text that immediately precedes ', [reporter]'.
+
+    Strips the trailing ', ' separator, then searches the text (split only on
+    semicolons/newlines so that periods inside abbreviations like 'v.' or 'U.S.'
+    are not treated as sentence boundaries) for one of three patterns:
+      - "Party v. Party"
+      - "In re Something"
+      - "Ex parte Someone"
+
+    Returns None when no reliable case name is found.
+    """
+    text = text.rstrip()
+    if text.endswith(","):
+        text = text[:-1].rstrip()
+    if not text:
+        return None
+
+    # Split only on semicolons and newlines; period-based splitting would break
+    # abbreviations like "v.", "U.S.", etc. that are common in citation text.
+    segments = re.split(r";\s+|\n+", text)
+    seg = segments[-1].strip() if segments else text.strip()
+
+    # "In re ..." — match the last occurrence ending at the segment boundary
+    in_re_matches = list(re.finditer(r"\b(In\s+re\s+[A-Z][^\n.!?;]{1,80})\s*$", seg, re.IGNORECASE))
+    if in_re_matches:
+        return in_re_matches[-1].group(1).strip()
+
+    # "Ex parte ..." — same approach
+    ex_parte_matches = list(
+        re.finditer(r"\b(Ex\s+parte\s+[A-Z][^\n.!?;]{1,80})\s*$", seg, re.IGNORECASE)
+    )
+    if ex_parte_matches:
+        return ex_parte_matches[-1].group(1).strip()
+
+    # Standard "Party v. Party" — use the LAST "v." in the segment so that when
+    # multiple case citations appear (e.g. "Harlow, 457 U.S. 800. Anderson v.
+    # Creighton, 483 U.S. 635") we pick the one closest to the raw_text.
+    v_matches = list(re.finditer(r"\bv\.\s+", seg))
+    if not v_matches:
+        return None
+
+    last_v = v_matches[-1]
+    defendant = seg[last_v.end() :].strip()
+    plaintiff = _plaintiff_from_before_v(seg[: last_v.start()])
+
+    if (
+        plaintiff
+        and defendant
+        and not re.fullmatch(r"[\d\s]+", plaintiff)
+        and not re.fullmatch(r"[\d\s]+", defendant)
+        and len(plaintiff) <= 80
+    ):
+        return f"{plaintiff} v. {defendant}"
+
+    return None
+
+
+def _year_and_parallel_from_suffix(text: str) -> tuple[str | None, str | None]:
+    """Extract the year parenthetical and any parallel citation from text after raw_text.
+
+    Returns (year_paren, parallel), e.g. ("(4th Cir. 2001)", "578 S.E.2d 781").
+    """
+    m = _YEAR_PAREN_RE.search(text)
+    if not m:
+        return None, None
+
+    year_paren = m.group(0)
+    between = text[: m.start()].strip().lstrip(",").strip()
+    parallel = between if _PARALLEL_CITE_RE.match(between) else None
+    return year_paren, parallel
+
+
+def _extract_bluebook_citation(snippet: str, raw_text: str) -> str | None:
+    """Build a Bluebook-format citation string from a document snippet.
+
+    Finds *raw_text* (e.g. "347 U.S. 483") inside *snippet*, then:
+      - looks left for the case name ("Brown v. Board of Education")
+      - looks right for a year parenthetical ("(1954)") and optional parallel
+        reporter citation ("578 S.E.2d 781")
+
+    Returns the assembled string, e.g.
+      "Brown v. Board of Education, 347 U.S. 483 (1954)"
+    or None when no reliable case name can be found.
+    """
+    if not snippet or not raw_text:
+        return None
+
+    idx = snippet.find(raw_text)
+    if idx == -1:
+        return None
+
+    case_name = _case_name_from_prefix(snippet[:idx])
+    if not case_name:
+        return None
+
+    year_paren, parallel = _year_and_parallel_from_suffix(snippet[idx + len(raw_text) :])
+
+    parts = [f"{case_name}, {raw_text}"]
+    if parallel:
+        parts.append(f", {parallel}")
+    if year_paren:
+        parts.append(f" {year_paren}")
+    return "".join(parts)
+
+
 def citation_to_context(
     citation: Any,
     resolution_cache: dict[str, Any] | None = None,
@@ -196,22 +373,20 @@ def citation_to_context(
         status, resolution_method, original_method, trust_tier=cache_trust_tier
     )
 
-    # Derive citation context: try to extract case name from snippet for case law,
-    # or use raw_text for statutes.
+    # Derive citation context: build a Bluebook-format string for case law, or
+    # use raw_text as-is for statutes and back-references.
     citation_context: str | None = None
     raw_text_val = getattr(citation, "raw_text", "") or ""
     snippet_val = getattr(citation, "snippet", None)
     citation_type_val = getattr(citation, "citation_type", "") or ""
-    if citation_type_val == "FullLawCitation":
-        # For statutes, the raw_text IS the citation context
+    if citation_type_val in _BACK_REF_TYPES or citation_type_val == "FullLawCitation":
+        # Statutes and back-references: raw text is the context
         citation_context = raw_text_val or None
     elif snippet_val:
-        # For case law, try to find the case name in the snippet
-        extracted_name = extract_case_name_from_text(snippet_val)
-        if extracted_name and extracted_name.lower() not in raw_text_val.lower():
-            citation_context = f"{extracted_name}, {raw_text_val}"
-        else:
-            citation_context = raw_text_val or None
+        # Case law: extract Bluebook format from snippet; fall back to raw_text
+        citation_context = (
+            _extract_bluebook_citation(snippet_val, raw_text_val) or raw_text_val or None
+        )
     else:
         citation_context = raw_text_val or None
 
