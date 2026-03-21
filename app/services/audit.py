@@ -126,19 +126,19 @@ _USC_NO_SYMBOL_RE = re.compile(
 _NAMED_STATE_CODE_RE = re.compile(
     r"""
     (?:
-        \b[A-Z][A-Za-z]{0,9}\.?    # state abbreviation or name: "Tex.", "Ohio"
+        \b(?-i:[A-Z])[A-Za-z]{0,9}\.?    # state abbr/name starting uppercase: "Tex.", "Ohio"
         \s+
     )
     (?:
-        [A-Z][A-Za-z]{0,9}\.?      # optional subject word: "Educ.", "Rev.", "Civ."
+        (?-i:[A-Z])[A-Za-z]{0,9}\.?      # optional subject word (uppercase): "Educ.", "Rev."
         \s+
     )?
-    (?:Rev\.\s+)?                   # optional standalone "Rev."
-    Code                            # the word "Code" (no trailing period needed)
+    (?:Rev\.\s+)?                         # optional standalone "Rev."
+    Code                                  # the word "Code" (no trailing period needed)
     \s*,?\s*
-    (?:[§\u00a7]|Sec\.|Section)\s* # section indicator
-    \d[\d.()\-]*                    # section number
-    (?:\s+et\s+seq\.)?             # optional "et seq."
+    (?:[§\u00a7]|Sec\.|Section)\s*       # section indicator
+    \d[\d.()\-]*                          # section number
+    (?:\s+et\s+seq\.)?                   # optional "et seq."
     """,
     re.VERBOSE | re.IGNORECASE,
 )
