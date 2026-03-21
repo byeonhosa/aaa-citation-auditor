@@ -219,6 +219,9 @@
     {% for citation in group.citations %}
     <li class="citation-item" data-status="{{ citation.verification_status or 'UNKNOWN' }}">
       <p><strong>Raw text:</strong> {{ citation.raw_text }}</p>
+      {% if citation.citation_context and citation.citation_context != citation.raw_text %}
+      <p><strong>Citation context:</strong> {{ citation.citation_context }}</p>
+      {% endif %}
       <p><strong>Type:</strong> {{ citation.citation_type }}</p>
       <p><strong>Normalized:</strong> {{ citation.normalized_text or "(not available)" }}</p>
       <p><strong>Resolved from:</strong> {{ citation.resolved_from or "(unresolved)" }}</p>

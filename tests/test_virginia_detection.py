@@ -356,3 +356,93 @@ def test_critical_text_end_to_end_statuses():
             assert status == "UNVERIFIED_NO_TOKEN", (
                 "Case law without token should be UNVERIFIED_NO_TOKEN"
             )
+
+
+# ── Frankenstein document patterns (exact text) ────────────────────────────
+
+
+def test_frankenstein_va_code_no_ann_detected():
+    """Va. Code § 15.2-3400 — no Ann. suffix."""
+    text = "Va. Code § 15.2-3400 governs boundary adjustments."
+    citations, _ = extract_citations(text)
+    hits = [c for c in citations if "15.2-3400" in c.raw_text]
+    assert hits, f"Expected Va. Code § 15.2-3400; got {[c.raw_text for c in citations]}"
+
+
+def test_frankenstein_va_code_1301_detected():
+    """Va. Code § 15.2-1301."""
+    text = "The authority is Va. Code § 15.2-1301."
+    citations, _ = extract_citations(text)
+    hits = [c for c in citations if "15.2-1301" in c.raw_text]
+    assert hits, f"Expected Va. Code § 15.2-1301; got {[c.raw_text for c in citations]}"
+
+
+def test_frankenstein_virginia_code_section_word_detected():
+    """Virginia Code Section 8.01-654 — full name + 'Section' keyword."""
+    text = "See Virginia Code Section 8.01-654 for habeas procedure."
+    citations, _ = extract_citations(text)
+    hits = [c for c in citations if "8.01-654" in c.raw_text]
+    assert hits, f"Expected 8.01-654; got {[c.raw_text for c in citations]}"
+
+
+def test_frankenstein_va_code_sec_dot_detected():
+    """Va. Code Sec. 19.2-327.2 — 'Sec.' abbreviation."""
+    text = "As provided by Va. Code Sec. 19.2-327.2."
+    citations, _ = extract_citations(text)
+    hits = [c for c in citations if "19.2-327.2" in c.raw_text]
+    assert hits, f"Expected 19.2-327.2; got {[c.raw_text for c in citations]}"
+
+
+def test_frankenstein_virginia_code_et_seq_detected():
+    """Virginia Code § 1-200 et seq. — 'et seq.' suffix."""
+    text = "Pursuant to Virginia Code § 1-200 et seq., the following rules apply."
+    citations, _ = extract_citations(text)
+    hits = [c for c in citations if "1-200" in c.raw_text]
+    assert hits, f"Expected 1-200; got {[c.raw_text for c in citations]}"
+
+
+def test_frankenstein_all_six_patterns():
+    """All six Frankenstein Virginia citations detected in one document."""
+    text = (
+        "Va. Code § 15.2-3400 governs boundary adjustments. "
+        "Va. Code Ann. § 15.2-1300 provides authority. "
+        "Va. Code § 15.2-1301 is also relevant. "
+        "Virginia Code Section 8.01-654 covers habeas corpus. "
+        "Va. Code Sec. 19.2-327.2 addresses the writ. "
+        "Virginia Code § 1-200 et seq. provides general definitions."
+    )
+    citations, _ = extract_citations(text)
+    raw_texts = [c.raw_text for c in citations]
+    assert any("15.2-3400" in r for r in raw_texts), "Missing Va. Code § 15.2-3400"
+    assert any("15.2-1300" in r for r in raw_texts), "Missing Va. Code Ann. § 15.2-1300"
+    assert any("15.2-1301" in r for r in raw_texts), "Missing Va. Code § 15.2-1301"
+    assert any("8.01-654" in r for r in raw_texts), "Missing Virginia Code Section 8.01-654"
+    assert any("19.2-327.2" in r for r in raw_texts), "Missing Va. Code Sec. 19.2-327.2"
+    assert any("1-200" in r for r in raw_texts), "Missing Virginia Code § 1-200 et seq."
+
+
+# ── Other state statute patterns (ISSUE 4) ────────────────────────────────
+
+
+def test_texas_educ_code_detected():
+    """Tex. Educ. Code § 26.010 — Texas Education Code."""
+    text = "Under Tex. Educ. Code § 26.010, parents have rights."
+    citations, _ = extract_citations(text)
+    hits = [c for c in citations if "26.010" in c.raw_text]
+    assert hits, f"Expected Tex. Educ. Code § 26.010; got {[c.raw_text for c in citations]}"
+
+
+def test_ohio_rev_code_detected():
+    """Ohio Rev. Code § 4112.02 — Ohio Revised Code."""
+    text = "Ohio Rev. Code § 4112.02 prohibits discrimination."
+    citations, _ = extract_citations(text)
+    hits = [c for c in citations if "4112.02" in c.raw_text]
+    assert hits, f"Expected Ohio Rev. Code § 4112.02; got {[c.raw_text for c in citations]}"
+
+
+def test_maine_mrs_section_6552_detected():
+    """20-A M.R.S. § 6552 — Maine Revised Statutes."""
+    text = "Pursuant to 20-A M.R.S. § 6552, the board shall act."
+    citations, _ = extract_citations(text)
+    hits = [c for c in citations if "6552" in c.raw_text]
+    assert hits, f"Expected 20-A M.R.S. § 6552; got {[c.raw_text for c in citations]}"

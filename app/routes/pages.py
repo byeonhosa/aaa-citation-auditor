@@ -195,6 +195,25 @@ def citation_to_context(
         status, resolution_method, original_method, trust_tier=cache_trust_tier
     )
 
+    # Derive citation context: try to extract case name from snippet for case law,
+    # or use raw_text for statutes.
+    citation_context: str | None = None
+    raw_text_val = getattr(citation, "raw_text", "") or ""
+    snippet_val = getattr(citation, "snippet", None)
+    citation_type_val = getattr(citation, "citation_type", "") or ""
+    if citation_type_val == "FullLawCitation":
+        # For statutes, the raw_text IS the citation context
+        citation_context = raw_text_val or None
+    elif snippet_val:
+        # For case law, try to find the case name in the snippet
+        extracted_name = extract_case_name_from_text(snippet_val)
+        if extracted_name and extracted_name.lower() not in raw_text_val.lower():
+            citation_context = f"{extracted_name}, {raw_text_val}"
+        else:
+            citation_context = raw_text_val or None
+    else:
+        citation_context = raw_text_val or None
+
     return {
         "id": getattr(citation, "id", None),
         "raw_text": citation.raw_text,
@@ -210,6 +229,7 @@ def citation_to_context(
         "search_links": search_links,
         "provenance": provenance,
         "cache_trust_tier": cache_trust_tier,
+        "citation_context": citation_context,
     }
 
 

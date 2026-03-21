@@ -27,8 +27,7 @@ def _get_credentials() -> tuple[str, str] | None:
     password = os.environ.get("NOTIFY_EMAIL_APP_PASSWORD", "").strip()
     if not email or not password:
         logger.warning(
-            "NOTIFY_EMAIL or NOTIFY_EMAIL_APP_PASSWORD not set; "
-            "skipping email notification."
+            "NOTIFY_EMAIL or NOTIFY_EMAIL_APP_PASSWORD not set; skipping email notification."
         )
         return None
     return email, password
@@ -87,11 +86,7 @@ def send_waitlist_notification(email: str) -> None:
     notify_email, notify_password = creds
 
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    body = (
-        "New waitlist signup on FinalVerify\n\n"
-        f"Email:     {email}\n"
-        f"Submitted: {timestamp}"
-    )
+    body = f"New waitlist signup on FinalVerify\n\nEmail:     {email}\nSubmitted: {timestamp}"
 
     msg = MIMEText(body)
     msg["Subject"] = "[FinalVerify Waitlist] New signup"

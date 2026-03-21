@@ -82,6 +82,8 @@ def _run_migrations() -> None:
 
 def create_app() -> FastAPI:
     configure_logging(settings.log_level)
+    if not settings.govinfo_api_key:
+        logger.warning("GOVINFO_API_KEY not configured — federal statute verification disabled")
     logger.info(
         "Starting %s (version %s, log_level=%s)",
         settings.app_name,

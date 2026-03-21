@@ -323,11 +323,7 @@ def map_courtlistener_result(result: dict[str, Any]) -> VerificationResponse:
 
     if status_code == 200:
         cluster_count = len(clusters)
-        detail = (
-            f"CourtListener matched citation (clusters: {cluster_count})."
-            if cluster_count
-            else "CourtListener matched citation."
-        )
+        detail = "CourtListener matched citation."
         # Extract cluster metadata so the result can be cached.
         # Only treat as a definitive single match when exactly one cluster is
         # returned; multiple clusters on a 200 are treated as AMBIGUOUS so the
@@ -816,10 +812,10 @@ def verify_citations(
                 citation.selected_cluster_id = cached["cluster_id"]
                 citation.resolution_method = "cache"
                 case_name = cached.get("case_name") or ""
-                detail = f"Resolved from cache (cluster {cached['cluster_id']})"
                 if case_name:
-                    detail += f". {case_name}"
-                citation.verification_detail = detail + "."
+                    citation.verification_detail = f"Resolved from cache. {case_name}."
+                else:
+                    citation.verification_detail = "Resolved from cache."
                 cache_count += 1
                 logger.debug(
                     "Cache hit for citation: %r → cluster %d",
@@ -835,9 +831,6 @@ def verify_citations(
             if hit is not None:
                 cid = hit["cluster_id"]
                 case_name = hit.get("case_name") or ""
-                detail = f"Matched in local citation index (cluster {cid})"
-                if case_name:
-                    detail += f". {case_name}"
                 citation.verification_status = "VERIFIED"
                 citation.selected_cluster_id = cid
                 citation.resolution_method = "local_index"
@@ -850,7 +843,10 @@ def verify_citations(
                         "date_filed": hit.get("date_filed"),
                     }
                 ]
-                citation.verification_detail = detail + "."
+                if case_name:
+                    citation.verification_detail = f"Matched in local citation index. {case_name}."
+                else:
+                    citation.verification_detail = "Matched in local citation index."
                 local_index_count += 1
                 logger.debug(
                     "Local index hit for citation: %r → cluster %d",
@@ -994,6 +990,18 @@ def verify_citations(
                 fed_not_found,
             )
 
+    # ── Update detail for federal statutes when no API key configured ──────────
+    if not effective_api_key:
+        for citation in citations:
+            if citation.verification_status != "STATUTE_DETECTED":
+                continue
+            parsed = parse_federal_section(citation.normalized_text or citation.raw_text)
+            if parsed is not None:
+                citation.verification_detail = (
+                    "Federal statute detected — verification requires GovInfo API key"
+                    " (not configured)."
+                )
+
     if not verifiable or not courtlistener_token:
         _postprocess_citations(citations)
         return citations
@@ -1045,11 +1053,14 @@ def verify_citations(
             citation.selected_cluster_id = winner["cluster_id"]
             citation.resolution_method = "dedup"
             case_name = winner.get("case_name") or ""
-            cid = winner["cluster_id"]
-            detail = f"Resolved automatically (duplicate candidates removed, cluster {cid})"
             if case_name:
-                detail += f". {case_name}"
-            citation.verification_detail = detail + "."
+                citation.verification_detail = (
+                    f"Resolved automatically (duplicate candidates removed). {case_name}."
+                )
+            else:
+                citation.verification_detail = (
+                    "Resolved automatically (duplicate candidates removed)."
+                )
             dedup_resolved += 1
             logger.info(
                 "Dedup auto-resolved: %r → cluster %d",

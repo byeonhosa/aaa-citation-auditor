@@ -606,3 +606,47 @@ def test_usc_subsection_reference_verified():
     assert hits, "No 1257 citation in result"
     assert hits[0].verification_status == "STATUTE_VERIFIED"
     assert "1257" in hits[0].verification_detail
+
+
+def test_federal_statute_no_api_key_sets_helpful_detail():
+    """When GOVINFO_API_KEY is absent, detected federal statutes get a helpful detail message."""
+    text = "Claims under 42 U.S.C. § 1983 are actionable."
+    citations, _ = extract_citations(text)
+    result = verify_citations(
+        citations,
+        courtlistener_token=None,
+        verification_base_url="https://www.courtlistener.com/api/rest/v4/citation-lookup/",
+        federal_statute_verification=True,
+        govinfo_api_key=None,  # No key
+    )
+    usc_cites = [c for c in result if "1983" in c.raw_text]
+    assert usc_cites, "Expected 42 U.S.C. § 1983 citation"
+    c = usc_cites[0]
+    assert c.verification_status == "STATUTE_DETECTED"
+    assert "GovInfo API key" in (c.verification_detail or ""), (
+        f"Expected API key mention in detail; got: {c.verification_detail!r}"
+    )
+
+
+def test_usc_no_symbol_35_usc_154_detected():
+    """35 U.S.C. 154(a)(1) — no § symbol — should be detected."""
+    text = "Under 35 U.S.C. 154(a)(1), the patent term is 20 years."
+    citations, _ = extract_citations(text)
+    hits = [c for c in citations if "154" in c.raw_text and "U.S.C." in c.raw_text]
+    assert hits, f"Expected 35 U.S.C. 154 citation; got {[c.raw_text for c in citations]}"
+
+
+def test_usc_no_symbol_et_seq_detected():
+    """35 U.S.C. 1 et seq. — no § symbol, et seq. suffix."""
+    text = "See 35 U.S.C. 1 et seq. for the general provisions."
+    citations, _ = extract_citations(text)
+    hits = [c for c in citations if "U.S.C." in c.raw_text]
+    assert hits, f"Expected 35 U.S.C. 1 et seq. citation; got {[c.raw_text for c in citations]}"
+
+
+def test_usc_no_symbol_21_usc_355_detected():
+    """21 U.S.C. 355 — no § symbol."""
+    text = "Under 21 U.S.C. 355, FDA approval is required."
+    citations, _ = extract_citations(text)
+    hits = [c for c in citations if "355" in c.raw_text and "U.S.C." in c.raw_text]
+    assert hits, f"Expected 21 U.S.C. 355 citation; got {[c.raw_text for c in citations]}"

@@ -43,7 +43,7 @@ _DOTTED_ABBREV_RE = re.compile(
         \s+(?:Stat|Code)\.            # "Stat." or "Code."
         (?:\s+Ann\.)?                 # optional "Ann." suffix
     )
-    \s*(?:§|Sec\.|Section)\s*         # section indicator: § or Sec. or Section
+    \s*(?:[§\u00a7]|Sec\.|Section)\s* # section indicator: § or Sec. or Section
     \d[\d.()\-]*                      # section number (e.g., 1001, 162.670, 1001(20))
     """,
     re.VERBOSE | re.UNICODE | re.IGNORECASE,
@@ -64,10 +64,11 @@ _VA_CODE_RE = re.compile(
           (?:[^§\n]{0,50})?                             # optional year / parenthetical
     )
     \s*,?\s*                                            # optional comma + whitespace
-    (?:§|Sec\.|Section)\s*                              # section indicator: § or Sec. or Section
+    (?:[§\u00a7]|Sec\.|Section)\s*                     # section indicator: § or Sec. or Section
     \d+(?:\.\d+)?                                       # title: 1 | 15.2 | 46.2
     [-\N{EN DASH}]                                      # hyphen or en-dash
     \d[\dA-Z]*(?:[.:\-]\d[\dA-Z]*)*                    # section number
+    (?:\s+et\s+seq\.)?                                  # optional "et seq."
     """,
     re.VERBOSE | re.IGNORECASE,
 )
@@ -90,7 +91,7 @@ _USC_ALTERNATE_RE = re.compile(
         Title\s+\d+\s*,?\s*                  # "Title 42,"
         United\s+States\s+Code\s*,?\s*       # "United States Code,"
     )
-    (?:§|Sec\.|Section)\s*                   # section indicator
+    (?:[§\u00a7]|Sec\.|Section)\s*          # section indicator
     \d[\dA-Za-z]*(?:\([^)]*\))?             # section number + optional sub
     """,
     re.VERBOSE | re.IGNORECASE,
@@ -104,16 +105,40 @@ _USC_ALTERNATE_RE = re.compile(
 # match citations already handled by eyecite or _DOTTED_ABBREV_RE (which require §).
 _USC_NO_SYMBOL_RE = re.compile(
     r"""
-    (?:Title\s+)?                              # optional "Title " prefix
-    \d+                                        # title number
+    (?:Title\s+)?                                      # optional "Title " prefix
+    \d+                                                # title number
     \s+
-    U\.S\.C\.                                  # dotted "U.S.C." (with periods)
-    (?:\s+Ann\.)?                              # optional " Ann."
-    (?!\s*,?\s*(?:§|Sec\.|Section))            # NOT followed by §/Sec./Section
+    U\.S\.C\.                                          # dotted "U.S.C." (with periods)
+    (?:\s+Ann\.)?                                      # optional " Ann."
+    (?!\s*,?\s*(?:[§\u00a7]|Sec\.|Section))            # NOT followed by §/Sec./Section
     \s+
-    \d[\dA-Za-z]*                              # section number: 154, 1983, 101a
-    (?:\([^)]{0,30}\))*                        # optional repeated subsections: (a)(1)
-    (?:\s+et\s+seq\.)?                         # optional "et seq."
+    \d[\dA-Za-z]*                                      # section number: 154, 1983, 101a
+    (?:\([^)]{0,30}\))*                                # optional repeated subsections: (a)(1)
+    (?:\s+et\s+seq\.)?                                 # optional "et seq."
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+# Pattern 5 — State-named Code formats (no trailing dot on "Code")
+#   "Tex. Educ. Code § 26.010"   (Texas Education Code)
+#   "Ohio Rev. Code § 4112.02"   (Ohio Revised Code)
+#   "20-A M.R.S.A. § 6552"       (Maine, alternate form)
+_NAMED_STATE_CODE_RE = re.compile(
+    r"""
+    (?:
+        \b[A-Z][A-Za-z]{0,9}\.?    # state abbreviation or name: "Tex.", "Ohio"
+        \s+
+    )
+    (?:
+        [A-Z][A-Za-z]{0,9}\.?      # optional subject word: "Educ.", "Rev.", "Civ."
+        \s+
+    )?
+    (?:Rev\.\s+)?                   # optional standalone "Rev."
+    Code                            # the word "Code" (no trailing period needed)
+    \s*,?\s*
+    (?:[§\u00a7]|Sec\.|Section)\s* # section indicator
+    \d[\d.()\-]*                    # section number
+    (?:\s+et\s+seq\.)?             # optional "et seq."
     """,
     re.VERBOSE | re.IGNORECASE,
 )
@@ -125,6 +150,7 @@ _SUPPLEMENTAL_STATUTE_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("va_code", _VA_CODE_RE),
     ("usc_alternate", _USC_ALTERNATE_RE),
     ("usc_no_symbol", _USC_NO_SYMBOL_RE),
+    ("named_state_code", _NAMED_STATE_CODE_RE),
 ]
 
 
@@ -153,7 +179,8 @@ class SourceInput:
 
 def extract_text_from_docx(file_bytes: bytes) -> str:
     document = Document(BytesIO(file_bytes))
-    return "\n".join(paragraph.text for paragraph in document.paragraphs if paragraph.text.strip())
+    text = "\n".join(paragraph.text for paragraph in document.paragraphs if paragraph.text.strip())
+    return unicodedata.normalize("NFKC", text)
 
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
@@ -193,6 +220,13 @@ def _find_supplemental_statutes(
     CitationResult per unique raw text (matching eyecite's own behaviour for
     repeated statute citations).
     """
+    # Debug: log byte values of any § characters found in text (helps diagnose DOCX encoding issues)
+    if logger.isEnabledFor(logging.DEBUG):
+        for i, ch in enumerate(text):
+            if unicodedata.category(ch) == "Po" and "SECTION" in (unicodedata.name(ch, "") or ""):
+                logger.debug(
+                    "§ character at pos %d: U+%04X (%s)", i, ord(ch), unicodedata.name(ch, "?")
+                )
     # Seed with existing FullLawCitation texts so we don't re-add what eyecite
     # already found by text string (belt-and-suspenders alongside position check).
     seen_texts: set[str] = {
