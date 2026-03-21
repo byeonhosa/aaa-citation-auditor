@@ -8,6 +8,7 @@ modules are imported.  Tests never touch the production aaa.db file.
 from __future__ import annotations
 
 import os
+import pathlib
 
 import httpx
 import pytest
@@ -54,6 +55,18 @@ def clean_db() -> None:
     )
 
     Base.metadata.create_all(bind=_TEST_ENGINE)
+
+    # Stamp the Alembic version so _run_migrations() is a no-op (tables were
+    # created via create_all above, not via Alembic migrations).
+    from alembic.config import Config as AlembicConfig
+
+    from alembic import command as alembic_command
+
+    _PROJECT_ROOT = pathlib.Path(__file__).parent.parent
+    _alembic_cfg = AlembicConfig(str(_PROJECT_ROOT / "alembic.ini"))
+    _alembic_cfg.set_main_option("script_location", str(_PROJECT_ROOT / "alembic"))
+    alembic_command.stamp(_alembic_cfg, "head")
+
     with _TestSessionLocal() as db:
         db.query(CitationResultRecord).delete()
         db.query(AuditRun).delete()

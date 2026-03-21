@@ -232,6 +232,10 @@ def is_derived_citation(citation: CitationResult) -> bool:
     )
 
 
+def is_supra_citation(citation: CitationResult) -> bool:
+    return citation.citation_type == "SupraCitation"
+
+
 def _update_derived_details(citations: list[CitationResult]) -> None:
     """Post-processing: update DERIVED citation detail text based on parent verification status.
 
@@ -245,38 +249,26 @@ def _update_derived_details(citations: list[CitationResult]) -> None:
     for c in citations:
         if c.verification_status != "DERIVED":
             continue
+        is_supra = c.resolution_method == "supra_ref"
         parent_raw = c.resolved_from
         if not parent_raw:
             c.verification_detail = "Derived citation — parent citation not identified."
             continue
+        label = "Supra back-reference to" if is_supra else "Derived from"
         pstatus = parent_status.get(parent_raw, "")
         if pstatus == "VERIFIED":
-            c.verification_detail = f"Derived from {parent_raw} — parent citation verified."
+            c.verification_detail = f"{label} {parent_raw} — parent citation verified."
         elif pstatus == "NOT_FOUND":
-            c.verification_detail = (
-                f"Derived from {parent_raw} — parent citation could not be verified."
-            )
+            c.verification_detail = f"{label} {parent_raw} — parent citation could not be verified."
         elif pstatus == "AMBIGUOUS":
-            c.verification_detail = f"Derived from {parent_raw} — parent citation is ambiguous."
+            c.verification_detail = f"{label} {parent_raw} — parent citation is ambiguous."
         else:
-            c.verification_detail = f"Derived from {parent_raw} — parent status unknown."
-
-
-def _mark_supra_refs(citations: list[CitationResult]) -> None:
-    """Tag verified SupraCitation references with resolution_method='supra_ref'.
-
-    This causes the provenance label to read "Derived (supra reference)" rather than
-    "Direct Match", which is misleading for a back-reference.
-    """
-    for c in citations:
-        if c.citation_type == "SupraCitation" and c.verification_status == "VERIFIED":
-            c.resolution_method = "supra_ref"
+            c.verification_detail = f"{label} {parent_raw} — parent status unknown."
 
 
 def _postprocess_citations(citations: list[CitationResult]) -> None:
     """Run all post-verification updates that require the full citation list."""
     _update_derived_details(citations)
-    _mark_supra_refs(citations)
 
 
 def _lookup_text_for(citation: CitationResult) -> str:
@@ -795,6 +787,26 @@ def verify_citations(
             citation.verification_detail = (
                 f"Derived from {citation.resolved_from or 'unknown prior citation'}."
             )
+            derived_count += 1
+            continue
+
+        if is_supra_citation(citation):
+            # Supra citations must never be sent to CourtListener or cached
+            # under the bare key "supra," — they are pre-resolved by
+            # resolve_supra_citations() in the extraction pipeline.
+            if citation.resolved_from is not None:
+                citation.verification_status = "DERIVED"
+                citation.resolution_method = "supra_ref"
+                citation.verification_detail = (
+                    f"Derived from {citation.resolved_from} — supra back-reference."
+                )
+            else:
+                antecedent = citation.antecedent_guess or "unknown"
+                citation.verification_status = "AMBIGUOUS"
+                citation.verification_detail = (
+                    f"Supra back-reference to '{antecedent}' — "
+                    "no matching earlier citation found in this document."
+                )
             derived_count += 1
             continue
 
