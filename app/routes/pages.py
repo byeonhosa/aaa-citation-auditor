@@ -53,6 +53,7 @@ from app.services.audit import (
     collect_sources,
     extract_citations,
     resolve_id_citations,
+    resolve_supra_citations,
 )
 from app.services.disambiguation import extract_case_name_from_text
 from app.services.exporters import (
@@ -448,6 +449,7 @@ async def run_audit(
             citation_results, eff.max_citations_per_run
         )
         citation_results = resolve_id_citations(citation_results)
+        citation_results = resolve_supra_citations(citation_results)
 
         group_warnings = [*source.warnings, *parsing_warnings]
         if cap_warning:

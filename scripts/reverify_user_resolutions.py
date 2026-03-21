@@ -32,18 +32,10 @@ from app.settings import settings  # noqa: E402
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Re-verify user-submitted citation resolutions"
-    )
-    parser.add_argument(
-        "--days", type=int, default=7, help="Min days since last reverification"
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Print without making API calls"
-    )
-    parser.add_argument(
-        "--limit", type=int, default=500, help="Max entries to process"
-    )
+    parser = argparse.ArgumentParser(description="Re-verify user-submitted citation resolutions")
+    parser.add_argument("--days", type=int, default=7, help="Min days since last reverification")
+    parser.add_argument("--dry-run", action="store_true", help="Print without making API calls")
+    parser.add_argument("--limit", type=int, default=500, help="Max entries to process")
     args = parser.parse_args()
 
     with SessionLocal() as db:
@@ -83,9 +75,7 @@ def main() -> None:
         for entry_id in entry_ids:
             t0 = time.monotonic()
             fresh = db.scalar(
-                select(CitationResolutionCache).where(
-                    CitationResolutionCache.id == entry_id
-                )
+                select(CitationResolutionCache).where(CitationResolutionCache.id == entry_id)
             )
             if fresh is None:
                 continue

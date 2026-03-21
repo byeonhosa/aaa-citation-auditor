@@ -167,6 +167,7 @@ class CitationResult:
     candidate_metadata: list[dict] | None = None
     selected_cluster_id: int | None = None
     resolution_method: str | None = None
+    antecedent_guess: str | None = None
 
 
 @dataclass
@@ -370,12 +371,18 @@ def extract_citations(text: str) -> tuple[list[CitationResult], list[str]]:
                 if _has_alphanumeric(raw_text):
                     eyecite_spans.append((idx, span_end))
 
+        antecedent_guess: str | None = None
+        if type(citation).__name__ == "SupraCitation":
+            meta = getattr(citation, "metadata", None)
+            antecedent_guess = getattr(meta, "antecedent_guess", None) if meta else None
+
         results.append(
             CitationResult(
                 raw_text=raw_text or "(unavailable)",
                 citation_type=type(citation).__name__,
                 normalized_text=normalized_text,
                 snippet=snippet,
+                antecedent_guess=antecedent_guess,
             )
         )
 
@@ -443,6 +450,74 @@ def resolve_id_citations(citations: list[CitationResult]) -> list[CitationResult
             continue
 
         last_full_citation = citation
+
+    return citations
+
+
+_SUPRA_ANTECEDENT_TYPES = {"FullCaseCitation", "ShortCaseCitation"}
+
+
+def _antecedent_matches_citation(antecedent: str, citation: CitationResult) -> bool:
+    """Return True if *antecedent* (e.g. 'Brown') plausibly names *citation*.
+
+    We examine the portion of the snippet that precedes the citation's raw text
+    (i.e. the left context window), which is where the case name appears.
+    Restricting to the prefix avoids false positives when later supra references
+    in the same snippet happen to contain the antecedent word.
+    """
+    pattern = re.compile(r"\b" + re.escape(antecedent) + r"\b", re.IGNORECASE)
+
+    snippet = citation.snippet
+    if snippet and citation.raw_text:
+        # Use only the text to the LEFT of the citation in the snippet.
+        idx = snippet.find(citation.raw_text)
+        prefix = snippet[:idx] if idx != -1 else snippet
+        if pattern.search(prefix):
+            return True
+    elif snippet and pattern.search(snippet):
+        return True
+
+    # Fallback: check raw/normalized text (for short-form citations).
+    for text in (citation.raw_text, citation.normalized_text):
+        if text and pattern.search(text):
+            return True
+
+    return False
+
+
+def resolve_supra_citations(citations: list[CitationResult]) -> list[CitationResult]:
+    """Pre-resolve SupraCitation objects by matching their antecedent to an
+    earlier full citation in the same document.
+
+    - If matched: sets ``resolved_from`` to the parent's raw_text so that the
+      verification pipeline can mark it DERIVED.
+    - If unmatched: leaves ``resolved_from`` as None; the verification pipeline
+      will mark it AMBIGUOUS.
+
+    Supra citations are never sent to CourtListener and are never cached under
+    the key "supra,".
+    """
+    prior_full: list[CitationResult] = []
+
+    for citation in citations:
+        if citation.citation_type != "SupraCitation":
+            if citation.citation_type in _SUPRA_ANTECEDENT_TYPES:
+                prior_full.append(citation)
+            continue
+
+        antecedent = citation.antecedent_guess
+        if not antecedent:
+            # No antecedent available — cannot resolve.
+            continue
+
+        # Search backward through prior full citations for the best match.
+        matched: CitationResult | None = None
+        for candidate in reversed(prior_full):
+            if _antecedent_matches_citation(antecedent, candidate):
+                matched = candidate
+                break
+
+        citation.resolved_from = matched.raw_text if matched else None
 
     return citations
 

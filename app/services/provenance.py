@@ -199,6 +199,10 @@ def get_provenance(
         label, description, css_class = entry
         return ProvenanceInfo(label=label, description=description, css_class=css_class)
 
+    if status == "DERIVED" and resolution_method == "supra_ref":
+        label, description, css_class = _VERIFIED_METHOD_MAP["supra_ref"]
+        return ProvenanceInfo(label=label, description=description, css_class=css_class)
+
     if status in _STATUS_MAP:
         label, description, css_class = _STATUS_MAP[status]
         return ProvenanceInfo(label=label, description=description, css_class=css_class)
