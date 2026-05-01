@@ -5932,16 +5932,29 @@ def test_admin_message_detail_marks_as_read() -> None:
         assert updated.is_read is True
 
 
-def test_notification_skipped_when_env_vars_absent(monkeypatch) -> None:
-    """send_contact_notification and send_waitlist_notification do nothing when env vars absent."""
+def test_notification_returns_failure_result_when_notify_email_absent(monkeypatch) -> None:
+    """Replaces the obsolete smtplib-era no-op test.
+
+    Under the Resend implementation, missing NOTIFY_EMAIL means the
+    admin-alert sends return SendResult(success=False) without raising,
+    so the user-facing form flow is preserved. (Missing RESEND_API_KEY,
+    in contrast, raises NotificationConfigError — that case is covered
+    in tests/test_notifications.py.)
+    """
     monkeypatch.delenv("NOTIFY_EMAIL", raising=False)
-    monkeypatch.delenv("NOTIFY_EMAIL_APP_PASSWORD", raising=False)
 
-    from app.services.notifications import send_contact_notification, send_waitlist_notification
+    from app.services.notifications import (
+        send_contact_notification,
+        send_waitlist_notification,
+    )
 
-    # Should complete without raising
-    send_contact_notification("A", "a@b.com", "S", "M")
-    send_waitlist_notification("a@b.com")
+    contact_result = send_contact_notification("A", "a@b.com", "S", "M")
+    waitlist_result = send_waitlist_notification("a@b.com")
+
+    assert contact_result.success is False
+    assert waitlist_result.success is False
+    assert "NOTIFY_EMAIL" in (contact_result.error or "")
+    assert "NOTIFY_EMAIL" in (waitlist_result.error or "")
 
 
 def test_waitlist_saves_email_to_db() -> None:
