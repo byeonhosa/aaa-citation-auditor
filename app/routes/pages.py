@@ -1278,6 +1278,38 @@ def admin_message_detail(request: Request, msg_id: int) -> HTMLResponse:
     )
 
 
+@router.post("/admin/test-email")
+def admin_test_email(
+    request: Request,
+    recipient: str = Form(...),
+) -> JSONResponse:
+    """Send a one-shot test email through the Resend pipeline.
+
+    Restricted to user_id==1 (the admin convention used by the rest of
+    the /admin/* surface). Returns the Resend message_id on success so
+    delivery can be verified end-to-end without exercising a form.
+    """
+    current_user = _user_ctx(request)
+    if not current_user or current_user["id"] != 1:
+        raise HTTPException(status_code=404)
+
+    from app.services.notifications import send_test_email
+
+    recipient = recipient.strip().lower()
+    if not recipient or "@" not in recipient:
+        return JSONResponse(
+            {"ok": False, "error": "Invalid email address."}, status_code=400
+        )
+
+    result = send_test_email(recipient)
+    if result.success:
+        return JSONResponse({"ok": True, "message_id": result.message_id})
+    return JSONResponse(
+        {"ok": False, "error": result.error or "Unknown send failure"},
+        status_code=502,
+    )
+
+
 @router.get("/about", response_class=HTMLResponse)
 def about_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
