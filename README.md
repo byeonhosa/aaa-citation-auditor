@@ -120,6 +120,9 @@ All settings can be changed at runtime via **Settings** in the app UI. Environme
 | Max citations per run | `MAX_CITATIONS_PER_RUN` | `500` | Citations beyond this limit are skipped (with a warning). |
 | Log level | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR`. |
 | Database URL | `DATABASE_URL` | `sqlite:///./aaa.db` | SQLite path or a SQLAlchemy-compatible URL. |
+| Resend API key | `RESEND_API_KEY` | _(none)_ | **Required in production.** App refuses to start without it. Get a key at [resend.com](https://resend.com/) and verify the sending domain. |
+| From address | `FINALVERIFY_FROM_EMAIL` | `john@finalverify.com` | Address used in the From: header. Must be on a Resend-verified domain. |
+| Admin notify email | `NOTIFY_EMAIL` | _(none)_ | Admin recipient for contact-form and waitlist alerts. When unset, those alerts are skipped silently. |
 
 ---
 

@@ -18,6 +18,7 @@ from app.routes.api import router as api_router
 from app.routes.auth import router as auth_router
 from app.routes.pages import router as pages_router
 from app.services.auth import users_exist
+from app.services.notifications import validate_email_config
 from app.settings import PROJECT_ROOT, STATIC_DIR, TEMPLATES_DIR, settings
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,9 @@ def create_app() -> FastAPI:
     configure_logging(settings.log_level)
     if not settings.govinfo_api_key:
         logger.warning("GOVINFO_API_KEY not configured — federal statute verification disabled")
+    # Outbound email is mandatory in production. Refuse to start if the
+    # Resend key is missing rather than silently dropping every alert.
+    validate_email_config()
     logger.info(
         "Starting %s (version %s, log_level=%s)",
         settings.app_name,
