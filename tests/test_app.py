@@ -657,7 +657,11 @@ def test_statute_citation_gets_statute_detected_status() -> None:
     )
 
     assert verified[0].verification_status == "STATUTE_DETECTED"
-    assert "Statute citation detected" in (verified[0].verification_detail or "")
+    # Federal statute citations without a GovInfo API key configured emit the
+    # federal-specific detail message at app/services/verification.py:1013.
+    # (Other unverified statutes use the more generic "Statute citation
+    # detected — verification not available…" string from line 779.)
+    assert "Federal statute detected" in (verified[0].verification_detail or "")
 
 
 def test_statute_not_sent_to_courtlistener() -> None:

@@ -11,7 +11,6 @@ test_notification_resend_path_replaces_legacy below for the inverted
 
 from __future__ import annotations
 
-import os
 import re
 from typing import Any
 
