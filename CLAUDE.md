@@ -87,14 +87,30 @@ top of the script. The function's return value is the source of truth.
 
 ## Obsidian Vault Update (MANDATORY — end of every session)
 
-File 1 — overwrite each time:
-C:\Knowledge\dryden-vault\improved-vault\10-Products\FinalVerify\Current-Context.md
+The vault is itself a Git repo (`https://github.com/byeonhosa/dryden-vault`).
+For the editing rules, structure overview, and commit-and-push workflow, see
+the vault's own CLAUDE.md at
+`C:\Knowledge\dryden-vault\improved-vault\CLAUDE.md` — it is the source of
+truth. This section names only the FinalVerify-specific files to touch.
 
-Sections: Last updated, Last commit, What Works Right Now, What Was Done This Session, Known Issues / Tech Debt, Next Up, Architecture Notes, Environment Setup.
+**File 1 — overwrite each time:**
+`C:\Knowledge\dryden-vault\improved-vault\10-Products\FinalVerify\Current-Context.md`
 
-File 2 — new file each session:
-C:\Knowledge\dryden-vault\improved-vault\10-Products\FinalVerify\Development-Status\FinalVerify_Development_Status_[YYYYMMDD_HHMMSS].md
+Follow the canonical template at
+`C:\Knowledge\dryden-vault\improved-vault\50-Templates\Current-Context-Template.md`.
+The template is the source of truth — do not enumerate sections here, because
+that's what created drift in the first place. Required vs. optional sections
+are marked inside the template.
 
-Sections: Session Summary (commit, duration), Changes Made, Test Results, Decisions Made, Backlog Items Discovered.
+**File 2 — new file each session (append-only history):**
+`C:\Knowledge\dryden-vault\improved-vault\10-Products\FinalVerify\Development-Status\FinalVerify_Development_Status_[YYYYMMDD_HHMMSS].md`
+
+Sections: Session Summary (commit, duration), Changes Made, Test Results,
+Decisions Made, Backlog Items Discovered.
 
 Create the Development-Status directory if it doesn't exist.
+
+**Commit + push the vault changes** with a message of the form
+`vault: FinalVerify: <what changed and why>` (per the convention in the
+vault's CLAUDE.md). Direct edits without commit-and-push create drift — the
+hourly Pi auto-backup cron is a safety net, not the workflow.
