@@ -209,3 +209,7 @@ __marimo__/
 # AAA local runtime artifacts
 aaa.db
 .aaa/
+
+# Local-only Docker Compose overrides (contain secrets)
+docker-compose.override.yml
+docker-compose.override.yaml
