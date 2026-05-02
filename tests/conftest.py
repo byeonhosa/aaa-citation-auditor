@@ -22,6 +22,12 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["COURTLISTENER_TOKEN"] = ""  # disable real CourtListener calls
 os.environ["AI_PROVIDER"] = "none"  # disable real AI calls
 os.environ["OPENAI_API_KEY"] = ""
+# Resend integration: dummy key so validate_email_config() passes startup.
+# Tests never actually hit Resend — see the resend.Emails.send patches in
+# the notification tests for how outbound calls are stubbed.
+os.environ.setdefault("RESEND_API_KEY", "re_test_dummy_key")
+os.environ.setdefault("FINALVERIFY_FROM_EMAIL", "test-from@finalverify.com")
+os.environ.setdefault("NOTIFY_EMAIL", "test-admin@finalverify.com")
 
 # ── In-memory test engine (shared across all connections via StaticPool) ───
 _TEST_ENGINE = create_engine(
@@ -78,6 +84,21 @@ def clean_db() -> None:
         db.query(WaitlistEntry).delete()
         db.query(User).delete()
         db.commit()
+
+
+# ── Resend stub (autouse) ──────────────────────────────────────────────────
+# Background-task email sends in form tests would otherwise try to hit
+# Resend's real API with the dummy key set above. We stub Emails.send
+# globally; tests that want to assert on send params (see
+# test_notifications.py) override this with their own recorder fixture.
+@pytest.fixture(autouse=True)
+def _stub_resend_send(monkeypatch: pytest.MonkeyPatch) -> None:
+    import resend
+
+    def _noop(params: dict, options: dict | None = None) -> dict:
+        return {"id": "autouse-stub-id"}
+
+    monkeypatch.setattr(resend.Emails, "send", _noop)
 
 
 # ── HTTP mock helpers ──────────────────────────────────────────────────────

@@ -49,6 +49,19 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    # ── Outbound email (Resend HTTPS) ──────────────────────────────────────
+    # RESEND_API_KEY is required at app startup; see app.services.notifications
+    # for the validation hook.  None here lets the app import in dev/test
+    # without the key, but the startup validator will refuse to boot in
+    # production unless it is set.
+    resend_api_key: str | None = None
+    # Address that appears in the From: header.  Must be on a domain
+    # verified in the Resend dashboard.
+    finalverify_from_email: str = "john@finalverify.com"
+    # Admin recipient for contact-form and waitlist alerts.  When unset,
+    # those alerts are skipped (logged warning, no exception).
+    notify_email: str | None = None
+
     secret_key: str = Field(default_factory=lambda: secrets.token_hex(32))
 
     model_config = SettingsConfigDict(

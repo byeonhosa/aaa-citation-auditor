@@ -29,12 +29,17 @@ services:
       # OLLAMA_BASE_URL: "http://ollama:11434"
       # OLLAMA_MODEL: "llama3.2"
 
-      # ── Admin email notifications (optional) ────────────────────────────────
-      # When set, the admin receives an email for new contact and waitlist signups.
-      # Use a Gmail address with an App Password (not the account password).
-      # Generate one at: myaccount.google.com/apppasswords
-      # NOTIFY_EMAIL: "you@gmail.com"
-      # NOTIFY_EMAIL_APP_PASSWORD: "your-app-password"
+      # ── Outbound email (Resend HTTPS) ───────────────────────────────────────
+      # RESEND_API_KEY is REQUIRED in production deployments — the app
+      # refuses to start without it. DigitalOcean blocks outbound SMTP from
+      # Docker containers, so smtplib is no longer used.
+      # Get a key from https://resend.com/ and verify the sending domain.
+      # RESEND_API_KEY: "re_xxx"
+      # FINALVERIFY_FROM_EMAIL: "john@finalverify.com"
+      #
+      # NOTIFY_EMAIL is the admin recipient for contact-form and waitlist
+      # alerts. When unset, those alerts are skipped without raising.
+      # NOTIFY_EMAIL: "admin@finalverify.com"
     restart: unless-stopped
 
   # ── Optional: Ollama (free, local AI — no API key required) ─────────────────
