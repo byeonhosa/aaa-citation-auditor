@@ -111,7 +111,8 @@ def _build_prompt(run_data: dict[str, Any]) -> str:
         "  Many legitimate citations use reporter systems not indexed in open databases and will "
         "always return NOT_FOUND.",
         "  Do NOT recommend challenging the validity of a citation solely because it is NOT_FOUND.",
-        "  DO recommend: manual verification using the free search links provided — CourtListener "
+        "  DO recommend: manual verification using the free search links FinalVerify shows the "
+        "user beside each citation (they are not included below) — CourtListener "
         "(courtlistener.com), Google Scholar (scholar.google.com), or PACER (pacer.gov) for "
         "federal cases — before drawing any conclusions.",
         "  For opposing_review mode: before suggesting any challenge, instruct the attorney to "
@@ -129,9 +130,9 @@ def _build_prompt(run_data: dict[str, Any]) -> str:
         "be flagged as a risk.",
         "  Only flag DERIVED citations as a risk when their parent is NOT_FOUND, AMBIGUOUS, "
         "or ERROR (i.e. the underlying citation could not be verified).",
-        "  Use the 'derived_verified_parent_count' and 'derived_risky_parent_count' fields "
-        "provided below to make this distinction — do not treat the raw DERIVED count in the "
-        "verification_summary as problematic on its own.",
+        "  Use the 'Derived citations with verified parent' and 'Derived citations with "
+        "unverified/risky parent' counts below to make this distinction — do not treat the raw "
+        "DERIVED count in the verification summary as problematic on its own.",
         "",
         "Return a JSON object with exactly these keys:",
         "  risk_level: one of 'Low', 'Moderate', 'High', or 'Critical'",
